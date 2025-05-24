@@ -1,0 +1,231 @@
+version: "3.8"
+
+services:
+  blog-service:
+    build: ./BlogService
+    networks:
+      - backend
+    environment:
+      - DB_HOST=blogging-db
+      - DB_PORT=5432
+      - DB_USER=finki-blogger
+      - DB_PASSWORD=root123
+      - DB_NAME=finki-blogger-blogs
+      - ZOOKEEPER_HOST=zookeeper
+      - ZOOKEEPER_PORT=2181
+    deploy:
+      mode: replicated
+      replicas: 3
+      endpoint_mode: vip
+    depends_on:
+      - zookeeper
+      - blogging-db
+
+  comment-service:
+    build: ./CommentService
+    networks:
+      - backend
+    environment:
+      - DB_HOST=blogging-db
+      - DB_PORT=5432
+      - DB_USER=finki-blogger
+      - DB_PASSWORD=root123
+      - DB_NAME=finki-blogger-blogs
+      - ZOOKEEPER_HOST=zookeeper
+      - ZOOKEEPER_PORT=2181
+    deploy:
+      mode: replicated
+      replicas: 3
+      endpoint_mode: vip
+    depends_on:
+      - zookeeper
+      - blogging-db
+
+  like-service:
+    build: ./LikeService
+    networks:
+      - backend
+    environment:
+      - DB_HOST=blogging-db
+      - DB_PORT=5432
+      - DB_USER=finki-blogger
+      - DB_PASSWORD=root123
+      - DB_NAME=finki-blogger-blogs
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - ZOOKEEPER_HOST=zookeeper
+      - ZOOKEEPER_PORT=2181
+    deploy:
+      mode: replicated
+      replicas: 3
+      endpoint_mode: vip
+    depends_on:
+      - rabbitmq
+      - zookeeper
+      - blogging-db
+
+  email-service:
+    build: ./EmailService
+    networks:
+      - backend
+    environment:
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - ZOOKEEPER_HOST=zookeeper
+      - ZOOKEEPER_PORT=2181
+    deploy:
+      mode: replicated
+      replicas: 3
+      endpoint_mode: vip
+    depends_on:
+      - rabbitmq
+      - zookeeper
+
+  user-service:
+    build: ./UserService
+    networks:
+      - backend
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=user-db;Port=5432;Database=finki-blogger-users;Username=finki-blogger;Password=root123
+      - ZOOKEEPER_HOST=zookeeper
+      - ZOOKEEPER_PORT=2181
+    deploy:
+      mode: replicated
+      replicas: 3
+      endpoint_mode: vip
+    depends_on:
+      - zookeeper
+      - user-db
+
+  frontend:
+    build: ./Frontend
+    ports:
+      - "4200:4200"
+    networks:
+      - frontend
+    depends_on:
+      - api-gateway
+
+  api-gateway:
+    image: kong:latest
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /app/kong.yml
+      KONG_ZOOKEEPER_HOST: zookeeper
+      KONG_ZOOKEEPER_PORT: 2181
+    volumes:
+      - ./kong.yml:/app/kong.yml
+    ports:
+      - "8000:8000"
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      - zookeeper
+
+  blog-service-lb:
+    image: nginx:latest
+    volumes:
+      - ./nginx/blog-service.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - "8086:80"
+    networks:
+      - backend
+    depends_on:
+      - blog-service
+
+  comment-service-lb:
+    image: nginx:latest
+    volumes:
+      - ./nginx/comment-service.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - "8087:80"
+    networks:
+      - backend
+    depends_on:
+      - comment-service
+
+  like-service-lb:
+    image: nginx:latest
+    volumes:
+      - ./nginx/like-service.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - "8088:80"
+    networks:
+      - backend
+    depends_on:
+      - like-service
+
+  email-service-lb:
+    image: nginx:latest
+    volumes:
+      - ./nginx/email-service.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - "8089:80"
+    networks:
+      - backend
+    depends_on:
+      - email-service
+
+  user-service-lb:
+    image: nginx:latest
+    volumes:
+      - ./nginx/user-service.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - "8090:80"
+    networks:
+      - backend
+    depends_on:
+      - user-service
+
+  blogging-db:
+    image: postgres:latest
+    environment:
+      - POSTGRES_PASSWORD=root123
+      - POSTGRES_USER=finki-blogger
+      - POSTGRES_DB=finki-blogger-blogs
+    ports:
+      - "6000:5432"
+    volumes:
+      - blogging_data:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  user-db:
+    image: postgres:latest
+    environment:
+      - POSTGRES_PASSWORD=root123
+      - POSTGRES_USER=finki-blogger
+      - POSTGRES_DB=finki-blogger-users
+    ports:
+      - "7000:5432"
+    volumes:
+      - user_data:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - backend
+
+  zookeeper:
+    image: zookeeper:3.7.0
+    ports:
+      - "2181:2181"
+    networks:
+      - backend
+    environment:
+      ZOO_MY_ID: 1
+      ZOO_SERVERS: server.1=zookeeper:2888:3888;2181
+
+networks:
+  frontend:
+  backend:
+
+volumes:
+  blogging_data:
+  user_data:

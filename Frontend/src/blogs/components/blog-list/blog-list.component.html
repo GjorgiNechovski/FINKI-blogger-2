@@ -1,0 +1,9 @@
+@for (blog of blogs; track $index) {
+  <div
+    class="container border border-primary custom-background mt-1 text-center"
+    (click)="details(blog.id)"
+  >
+    <h2>{{ blog.title }}</h2>
+    <p>{{ blog.body }}</p>
+  </div>
+}

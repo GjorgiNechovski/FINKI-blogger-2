@@ -1,0 +1,9 @@
+.custom-background {
+    background-color: hwb(44 73% 5%);
+    width: 50%;
+    height: 100vh;
+}
+
+.content-wrapper {
+    width: 75%;
+}

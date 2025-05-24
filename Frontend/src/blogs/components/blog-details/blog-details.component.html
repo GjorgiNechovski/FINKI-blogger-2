@@ -1,0 +1,42 @@
+<div
+  class="container d-flex justify-content-center align-items-center custom-background"
+>
+  <div class="content-wrapper">
+    @if (blog) {
+      <h1>{{ blog.title }}</h1>
+      <p>{{ blog.body }}</p>
+      <p>Number of likes: {{ blog.number_of_likes }}</p>
+
+      @for (comment of blog.comments; track $index) {
+        <div class="row m-2 p-2 border border-dark">
+          <span class="col-10">{{ comment.comment_text }}</span>
+          <button
+            class="btn btn-outline-danger col-2"
+            (click)="deleteComment(comment)"
+          >
+            Delete Comment
+          </button>
+        </div>
+      }
+
+      <form class="mt-4" [formGroup]="createBlogForm">
+        <textarea
+          rows="4"
+          type="text"
+          class="form-control mb-3"
+          formControlName="commentText"
+        ></textarea>
+        <button class="btn btn-outline-primary" (click)="createComment()">
+          Leave Comment
+        </button>
+      </form>
+
+      <div class="d-flex justify-content-between mt-3">
+        <button (click)="deleteBlog(blog.id)" class="btn btn-danger">
+          Delete
+        </button>
+        <button (click)="likeBlog(blog)" class="btn btn-success">Like</button>
+      </div>
+    }
+  </div>
+</div>

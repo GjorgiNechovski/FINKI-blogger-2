@@ -1,0 +1,17 @@
+<div class="container center-content text-center">
+  <form class="custom-background" [formGroup]="createBlogForm">
+    <label class="control-label">Title:</label><br />
+    <input class="form-control" type="text" formControlName="title" /><br />
+    <label class="control-label">Description:</label><br />
+    <textarea
+      rows="4"
+      class="form-control"
+      type="text"
+      formControlName="blogText"
+    ></textarea
+    ><br />
+    <button class="btn btn-outline-primary" (click)="createBlog()">
+      Create Blog
+    </button>
+  </form>
+</div>
