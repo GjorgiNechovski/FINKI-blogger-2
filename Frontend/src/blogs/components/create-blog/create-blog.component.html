@@ -1,17 +1,39 @@
-<div class="container center-content text-center">
-  <form class="custom-background" [formGroup]="createBlogForm">
-    <label class="control-label">Title:</label><br />
-    <input class="form-control" type="text" formControlName="title" /><br />
-    <label class="control-label">Description:</label><br />
-    <textarea
-      rows="4"
-      class="form-control"
-      type="text"
-      formControlName="blogText"
-    ></textarea
-    ><br />
-    <button class="btn btn-outline-primary" (click)="createBlog()">
-      Create Blog
-    </button>
-  </form>
+<div class="min-h-screen bg-gray-800 flex justify-center items-center py-6">
+  <div class="bg-gray-900 rounded-lg shadow-lg p-8 w-full max-w-lg">
+    <h2 class="text-2xl font-bold text-gray-100 mb-6 text-center">
+      Create a New Blog
+    </h2>
+    <form [formGroup]="createBlogForm">
+      <div class="mb-4">
+        <label class="block text-gray-300 font-medium mb-2" for="title"
+          >Title</label
+        >
+        <input
+          id="title"
+          type="text"
+          class="w-full p-3 pl-10 bg-gray-700 text-gray-200 border border-gray-600 rounded-md focus:ring-2 focus:ring-gradient focus:border-transparent focus:scale-[1.01] hover:shadow-md transition-all duration-300 placeholder-gray-400 input-icon title-icon"
+          formControlName="title"
+          placeholder="Enter blog title"
+        />
+      </div>
+      <div class="mb-4">
+        <label class="block text-gray-300 font-medium mb-2" for="blogText"
+          >Description</label
+        >
+        <textarea
+          id="blogText"
+          rows="4"
+          class="w-full p-3 pl-10 bg-gray-700 text-gray-200 border border-gray-600 rounded-md focus:ring-2 focus:ring-gradient focus:border-transparent focus:scale-[1.01] hover:shadow-md transition-all duration-300 placeholder-gray-400 input-icon text-icon"
+          formControlName="blogText"
+          placeholder="Enter blog description"
+        ></textarea>
+      </div>
+      <button
+        class="w-full bg-indigo-500 text-white px-6 py-2 rounded-md hover:bg-indigo-600 transition-colors duration-300"
+        (click)="createBlog()"
+      >
+        Create Blog
+      </button>
+    </form>
+  </div>
 </div>

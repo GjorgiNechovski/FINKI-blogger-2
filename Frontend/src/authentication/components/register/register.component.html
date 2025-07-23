@@ -1,100 +1,78 @@
-<section class="vh-100 gradient-custom">
-  <div class="container py-5 h-100">
-    <div class="row d-flex justify-content-center align-items-center h-100">
-      <div class="col-12 col-md-8 col-lg-6 col-xl-5">
-        <div class="card bg-dark text-white" style="border-radius: 1rem">
-          <div class="card-body p-5 text-center">
-            <div class="mb-md-5 mt-md-4 pb-5">
-              <form
-                [formGroup]="registerForm"
-                (submit)="register()"
-                th:method="post"
-              >
-                <h2 class="fw-bold mb-4 text-uppercase">Register</h2>
-                <p class="text-white-50 mb-5">
-                  Please enter your information to register
-                </p>
-
-                <div class="form-outline form-white mb-4">
-                  <input
-                    type="text"
-                    name="userName"
-                    id="userName"
-                    formControlName="userName"
-                    class="form-control form-control-lg"
-                    placeholder="Enter your UserName"
-                    required
-                  />
-                </div>
-
-                <div class="form-outline form-white mb-4">
-                  <input
-                    type="text"
-                    name="firstName"
-                    id="firstName"
-                    formControlName="firstName"
-                    class="form-control form-control-lg"
-                    placeholder="Enter your first name"
-                    required
-                  />
-                </div>
-
-                <div class="form-outline form-white mb-4">
-                  <input
-                    type="text"
-                    name="lastName"
-                    id="lastName"
-                    formControlName="lastName"
-                    class="form-control form-control-lg"
-                    placeholder="Enter your last name"
-                    required
-                  />
-                </div>
-
-                <div class="form-outline form-white mb-4">
-                  <input
-                    type="text"
-                    name="email"
-                    id="email"
-                    formControlName="email"
-                    class="form-control form-control-lg"
-                    placeholder="Enter your email"
-                    required
-                  />
-                </div>
-
-                <div class="form-outline form-white mb-4">
-                  <input
-                    type="password"
-                    name="password"
-                    id="password"
-                    formControlName="password"
-                    class="form-control form-control-lg"
-                    placeholder="Enter your password"
-                    required
-                  />
-                </div>
-
-                <div class="form-outline form-white mb-4">
-                  <input
-                    type="password"
-                    name="confirmPassword"
-                    id="confirmPassword"
-                    formControlName="confirmPassword"
-                    class="form-control form-control-lg"
-                    placeholder="Repeat your password"
-                    required
-                  />
-                </div>
-
-                <button class="btn btn-outline-light btn-lg px-5" type="submit">
-                  Register
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
+<section class="min-h-screen bg-gray-800 flex justify-center items-center py-6">
+  <div class="bg-gray-900 rounded-lg shadow-lg p-8 w-full max-w-md">
+    <h2 class="text-2xl font-bold text-gray-100 mb-4 text-center uppercase">
+      Register
+    </h2>
+    <p class="text-gray-400 mb-6 text-center">
+      Please enter your information to register
+    </p>
+    <form [formGroup]="registerForm" (ngSubmit)="register()">
+      <div class="mb-4">
+        <input
+          type="text"
+          id="userName"
+          formControlName="userName"
+          class="w-full p-3 pl-10 bg-gray-700 text-gray-200 border border-gray-600 rounded-md focus:ring-2 focus:ring-gradient focus:border-transparent focus:scale-[1.01] hover:shadow-md transition-all duration-300 placeholder-gray-400 input-icon username-icon"
+          placeholder="Enter your username"
+          required
+        />
       </div>
-    </div>
+      <div class="mb-4">
+        <input
+          type="text"
+          id="firstName"
+          formControlName="firstName"
+          class="w-full p-3 pl-10 bg-gray-700 text-gray-200 border border-gray-600 rounded-md focus:ring-2 focus:ring-gradient focus:border-transparent focus:scale-[1.01] hover:shadow-md transition-all duration-300 placeholder-gray-400 input-icon firstname-icon"
+          placeholder="Enter your first name"
+          required
+        />
+      </div>
+      <div class="mb-4">
+        <input
+          type="text"
+          id="lastName"
+          formControlName="lastName"
+          class="w-full p-3 pl-10 bg-gray-700 text-gray-200 border border-gray-600 rounded-md focus:ring-2 focus:ring-gradient focus:border-transparent focus:scale-[1.01] hover:shadow-md transition-all duration-300 placeholder-gray-400 input-icon lastname-icon"
+          placeholder="Enter your last name"
+          required
+        />
+      </div>
+      <div class="mb-4">
+        <input
+          type="text"
+          id="email"
+          formControlName="email"
+          class="w-full p-3 pl-10 bg-gray-700 text-gray-200 border border-gray-600 rounded-md focus:ring-2 focus:ring-gradient focus:border-transparent focus:scale-[1.01] hover:shadow-md transition-all duration-300 placeholder-gray-400 input-icon email-icon"
+          placeholder="Enter your email"
+          required
+        />
+      </div>
+      <div class="mb-4">
+        <input
+          type="password"
+          id="password"
+          formControlName="password"
+          class="w-full p-3 pl-10 bg-gray-700 text-gray-200 border border-gray-600 rounded-md focus:ring-2 focus:ring-gradient focus:border-transparent focus:scale-[1.01] hover:shadow-md transition-all duration-300 placeholder-gray-400 input-icon password-icon"
+          placeholder="Enter your password"
+          required
+        />
+      </div>
+      <div class="mb-6">
+        <input
+          type="password"
+          id="confirmPassword"
+          formControlName="confirmPassword"
+          class="w-full p-3 pl-10 bg-gray-700 text-gray-200 border border-gray-600 rounded-md focus:ring-2 focus:ring-gradient focus:border-transparent focus:scale-[1.01] hover:shadow-md transition-all duration-300 placeholder-gray-400 input-icon password-icon"
+          placeholder="Repeat your password"
+          required
+        />
+      </div>
+      <button
+        type="submit"
+        class="w-full bg-indigo-500 text-white px-6 py-2 rounded-md hover:bg-indigo-600 transition-colors duration-300"
+      >
+        Register
+      </button>
+    </form>
   </div>
 </section>
