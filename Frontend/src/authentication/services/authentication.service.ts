@@ -30,6 +30,7 @@ export class AuthenticationService {
   }
 
   register(
+    userName: string,
     firstName: string,
     lastName: string,
     email: string,
@@ -39,6 +40,7 @@ export class AuthenticationService {
     return this.httpClient.post<{ token: string }>(
       `${authentication_url}/Authentication/register`,
       {
+        userName: userName,
         email: email,
         password: password,
         firstName: firstName,

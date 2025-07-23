@@ -59,7 +59,7 @@ async def create(blog: CreateBlogDto, user: User = Depends(get_user_from_request
     new_blog: models.Blog = models.Blog(
         title=blog.title,
         blog_text=blog.blog_text,
-        user_id=user.id,
+        user_id=user.userName,
         date_created = datetime.now(),
         number_of_likes = 0
     )

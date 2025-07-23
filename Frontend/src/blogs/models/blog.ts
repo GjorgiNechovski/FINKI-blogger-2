@@ -2,9 +2,10 @@ export class Blog {
   constructor(
     public id: number,
     public title: string,
-    public body: string,
+    public blog_text: string,
     public comments: Comment[],
     public number_of_likes: number[],
+    public user_id: string,
   ) {}
 }
 

@@ -76,14 +76,14 @@ async def like_post(blog_id: int, user: User = Depends(get_user_from_request), d
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
 
-    existing_like = db.query(models.Like).filter(models.Like.blog_id == blog_id, models.Like.user_id == user.id).first()
+    existing_like = db.query(models.Like).filter(models.Like.blog_id == blog_id, models.Like.user_id == user.userName).first()
     if existing_like:
         db.delete(existing_like)
         blog.number_of_likes = blog.number_of_likes - 1 if blog.number_of_likes > 0 else 0
         db.commit()
         return JSONResponse(status_code=200, content={"message": "Blog unliked successfully"})
 
-    new_like = models.Like(blog_id=blog_id, user_id=user.id)
+    new_like = models.Like(blog_id=blog_id, user_id=user.userName)
     db.add(new_like)
 
     blog.number_of_likes = blog.number_of_likes + 1 if blog.number_of_likes else 1

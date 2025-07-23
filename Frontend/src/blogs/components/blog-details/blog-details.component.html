@@ -4,7 +4,10 @@
   <div class="content-wrapper">
     @if (blog) {
       <h1>{{ blog.title }}</h1>
-      <p>{{ blog.body }}</p>
+      <p>
+        Posted by <strong>{{ blog.user_id }}</strong>
+      </p>
+      <p>{{ blog.blog_text }}</p>
       <p>Number of likes: {{ blog.number_of_likes }}</p>
 
       @for (comment of blog.comments; track $index) {

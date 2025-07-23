@@ -12,7 +12,7 @@ async def get_user_from_request(authorization: Optional[str] = Header(None)) -> 
     decoded_token = jwt.decode(token, options={"verify_signature": False})
 
     user = User(
-        id=decoded_token["nameid"],
+        userName=decoded_token["nameid"],
         firstName=decoded_token["given_name"],
         lastName=decoded_token["family_name"],
         email=decoded_token["email"]

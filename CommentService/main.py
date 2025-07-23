@@ -56,7 +56,7 @@ async def create_comment(comment: CommentPydantic, user: User = Depends(get_user
 
     new_comment = models.Comment(
         blog_id=comment.blog_id,
-        user_id=user.id,
+        user_id=user.userName,
         comment_text=comment.comment_text,
         date_created=datetime.now()
     )

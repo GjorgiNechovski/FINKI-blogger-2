@@ -1,5 +1,10 @@
 import { Component } from '@angular/core'
-import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms'
+import {
+  FormControl,
+  FormGroup,
+  ReactiveFormsModule,
+  Validators,
+} from '@angular/forms'
 import { Router } from '@angular/router'
 import { AuthenticationService } from '../../services/authentication.service'
 
@@ -17,14 +22,16 @@ export class RegisterComponent {
   ) {}
 
   registerForm = new FormGroup({
-    firstName: new FormControl(),
-    lastName: new FormControl(),
-    email: new FormControl(),
-    password: new FormControl(),
-    confirmPassword: new FormControl(),
+    userName: new FormControl('', [Validators.required]),
+    firstName: new FormControl('', [Validators.required]),
+    lastName: new FormControl('', [Validators.required]),
+    email: new FormControl('', [Validators.required, Validators.email]),
+    password: new FormControl('', [Validators.required]),
+    confirmPassword: new FormControl('', [Validators.required]),
   })
 
   register() {
+    const userName = this.registerForm.value.userName
     const firstName = this.registerForm.value.firstName
     const lastName = this.registerForm.value.lastName
     const email = this.registerForm.value.email
@@ -36,10 +43,32 @@ export class RegisterComponent {
       return
     }
 
-    this.authService
-      .register(firstName, lastName, email, password, confirmPassword)
-      .subscribe()
+    if (this.registerForm.invalid) {
+      alert('Please fill out all required fields correctly')
+      return
+    }
 
-    this.router.navigateByUrl('/login')
+    if (
+      userName &&
+      firstName &&
+      lastName &&
+      email &&
+      password &&
+      confirmPassword
+    )
+      this.authService
+        .register(
+          userName,
+          firstName,
+          lastName,
+          email,
+          password,
+          confirmPassword,
+        )
+        .subscribe({
+          next: () => this.router.navigateByUrl('/login'),
+          error: err =>
+            alert(`Registration failed: ${err.error?.message || err.message}`),
+        })
   }
 }
