@@ -1,6 +1,10 @@
+using System;
+using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
+using System.Linq;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using UserService.Models;
 
@@ -18,15 +22,15 @@ public class JwtTokenService : IJwtTokenService
     public string GenerateToken(User user)
     {
         var securityKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(_configuration["Authentication:SecretForKey"]));
+            Encoding.UTF8.GetBytes(_configuration["Authentication:SecretForKey"] ?? throw new InvalidOperationException("SecretForKey is not configured")));
         var signingCredentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
         var claims = new List<Claim>
         {
-            new(ClaimTypes.Email, user.Email),
-            new(ClaimTypes.GivenName, user.FirstName),
-            new(ClaimTypes.Surname, user.LastName),
-            new(ClaimTypes.NameIdentifier, user.Id)
+            new(ClaimTypes.Email, user.Email ?? string.Empty),
+            new(ClaimTypes.GivenName, user.FirstName ?? string.Empty),
+            new(ClaimTypes.Surname, user.LastName ?? string.Empty),
+            new(ClaimTypes.NameIdentifier, user.UserName) // Changed from Id to UserName
         };
 
         var tokenDescriptor = new SecurityTokenDescriptor
@@ -64,7 +68,7 @@ public class JwtTokenService : IJwtTokenService
                     user.LastName = claim.Value;
                     break; 
                 case "nameid":
-                    user.Id = claim.Value;
+                    user.UserName = claim.Value;
                     break;
             }
         }

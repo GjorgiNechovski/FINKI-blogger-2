@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using UserService.Services;
 using UserService.Util;
@@ -16,23 +17,22 @@ public class UserController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetUser()
+    public IActionResult GetUser()
     {
         var token = TokenExtractor.GetJwtTokenFromRequest(Request);
         var user = _jwtTokenService.GetUserFromToken(token);
 
-        if (user.Id == null)
+        if (string.IsNullOrEmpty(user.UserName))
         {
             return Unauthorized();
         }
 
         return Ok(new 
         {
-            user.Id,
+            user.UserName,
             user.Email,
             user.FirstName,
-            user.LastName,
+            user.LastName
         });
-
     }
 }

@@ -1,3 +1,6 @@
+using System;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using UserService.Models;
@@ -19,11 +22,16 @@ public class AuthenticationService : IAuthenticationService
 
     public async Task Register(RegisterDto registerDto)
     {
-        var user = await _userManager.FindByEmailAsync(registerDto.Email);
-
-        if (user != null)
+        var userByEmail = await _userManager.FindByEmailAsync(registerDto.Email);
+        if (userByEmail != null)
         {
             throw new EntityExistsException("Email already exists");
+        }
+
+        var userByName = await _userManager.FindByNameAsync(registerDto.UserName);
+        if (userByName != null)
+        {
+            throw new EntityExistsException("Username already exists");
         }
 
         if (registerDto.Password != registerDto.ConfirmPassword)
@@ -31,19 +39,19 @@ public class AuthenticationService : IAuthenticationService
             throw new NotMatchingException("Passwords do not match");
         }
 
-        user = new User
+        var user = new User
         {
-            Id = Guid.NewGuid().ToString(),
             FirstName = registerDto.FirstName,
             LastName = registerDto.LastName,
             Email = registerDto.Email,
-            UserName = registerDto.Email,
+            UserName = registerDto.UserName, 
+            NormalizedUserName = registerDto.UserName.ToUpper()
         };
         
         var result = await _userManager.CreateAsync(user, registerDto.Password);
         if (!result.Succeeded)
         {
-            throw new NotMatchingException(result.Errors.ToString());
+            throw new NotMatchingException(string.Join("; ", result.Errors.Select(e => e.Description)));
         }
     }
 

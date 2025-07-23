@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http;
+
 namespace UserService.Util;
 
 public static class TokenExtractor

@@ -1,5 +1,6 @@
+using System;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using UserService.Models.Dto;
 using UserService.Models.Exceptions;
