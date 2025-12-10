@@ -13,7 +13,7 @@ export class Comment {
   constructor(
     public comment_id: string,
     public blog: Blog,
-    public userId: number,
+    public user_id: number,
     public comment_text: string,
     public dateCreate: Date,
   ) {}

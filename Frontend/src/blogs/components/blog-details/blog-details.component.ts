@@ -18,6 +18,7 @@ export class BlogDetailsComponent implements OnInit {
   })
 
   blog?: Blog
+  hasLiked?: boolean
 
   blogService = inject(BlogService)
   route = inject(ActivatedRoute)
@@ -29,6 +30,9 @@ export class BlogDetailsComponent implements OnInit {
       this.blogService.getBlogDetails(blogId).subscribe(blog => {
         this.blog = blog
       })
+      this.blogService
+        .hasLikedBlog(blogId)
+        .subscribe(hasLiked => (this.hasLiked = hasLiked))
     })
   }
 

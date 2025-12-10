@@ -61,4 +61,10 @@ export class BlogService {
       },
     )
   }
+
+  hasLikedBlog(blogId: number): Observable<boolean> {
+    return this.httpClient.get<boolean>(`${like_url}/has-liked/${blogId}`, {
+      headers,
+    })
+  }
 }

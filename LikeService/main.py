@@ -38,12 +38,11 @@ def send_email_message(email, header, message):
 
     channel.queue_declare(queue='like_events', durable=True)
 
-    email_string = f"{email}|{header}|{message}"
-    email_bytes = email_string.encode('utf-8')
+    email_string = f"{email}|{header}|{message}"  
 
     channel.basic_publish(exchange='',
                          routing_key='like_events',
-                         body=email_bytes,
+                         body=email_string,     
                          properties=pika.BasicProperties(
                              delivery_mode=2,
                          ))
@@ -99,3 +98,8 @@ async def like_post(blog_id: int, user: User = Depends(get_user_from_request), d
         send_email_message(recipient_email, email_header, email_message)
         
     return JSONResponse(status_code=200, content={"message": "Blog liked successfully"})
+
+@app.get("/has-liked/{blog_id}")
+async def has_liked(blog_id: int, user: User = Depends(get_user_from_request), db: Session = Depends(get_db)) -> bool:
+    existing_like = db.query(models.Like).filter(models.Like.blog_id == blog_id, models.Like.user_id == user.userName).first()
+    return bool(existing_like)

@@ -8,3 +8,5 @@ obj/
 *.user 
 *.vs/ 
 *.vscode/
+Documentation/
+Documentation/**

@@ -12,15 +12,20 @@
 
       @for (comment of blog.comments; track $index) {
         <div
-          class="flex items-center justify-between bg-gray-800 rounded-md p-4 mb-2 border border-gray-700"
+          class="flex flex-col bg-gray-800 rounded-md p-4 mb-2 border border-gray-700"
         >
-          <span class="text-gray-300">{{ comment.comment_text }}</span>
-          <button
-            class="text-red-400 hover:text-red-300 font-medium transition-colors duration-300"
-            (click)="deleteComment(comment)"
-          >
-            Delete
-          </button>
+          <p class="text-gray-400 mb-1">
+            Commented by <strong>{{ comment.user_id }}</strong>
+          </p>
+          <div class="flex items-center justify-between">
+            <span class="text-gray-300">{{ comment.comment_text }}</span>
+            <button
+              class="text-red-400 hover:text-red-300 font-medium transition-colors duration-300"
+              (click)="deleteComment(comment)"
+            >
+              Delete
+            </button>
+          </div>
         </div>
       }
 
@@ -50,7 +55,11 @@
           class="bg-emerald-600 text-white px-6 py-2 rounded-md hover:bg-emerald-800 transition-all duration-300 transform hover:scale-105"
           (click)="likeBlog(blog)"
         >
-          Like
+          @if (hasLiked) {
+            Remove Like
+          } @else {
+            Like
+          }
         </button>
       </div>
     }

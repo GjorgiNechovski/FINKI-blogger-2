@@ -19,17 +19,16 @@ export class AuthGuard {
     const token = localStorage.getItem('jwtToken')
     const jwtTokenDate = localStorage.getItem('jwtTokenDate')
 
-    if (!token) {
+    if (!token || !jwtTokenDate) {
       return this.router.parseUrl('/login')
     }
 
-    if (jwtTokenDate) {
-      const date = new Date(jwtTokenDate)
-      if (date.getTime() < Date.now()) {
-        localStorage.removeItem('jwtToken')
-        localStorage.removeItem('jwtTokenDate')
-        return this.router.parseUrl('/login')
-      }
+    const tokenDate = new Date(parseInt(jwtTokenDate, 10))
+    const expirationTime = tokenDate.getTime() + 3600000
+    if (Date.now() >= expirationTime) {
+      localStorage.removeItem('jwtToken')
+      localStorage.removeItem('jwtTokenDate')
+      return this.router.parseUrl('/login')
     }
 
     return true
