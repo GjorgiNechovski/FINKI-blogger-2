@@ -1,0 +1,68 @@
+  █ THRESHOLDS
+
+    http_req_duration
+    ✗ 'p(95)<800' p(95)=1m0s
+
+      {name:CreateBlog}
+      ✗ 'p(95)<1500' p(95)=1m0s
+
+      {name:CreateComment}
+      ✓ 'p(95)<800' p(95)=31.07ms
+
+      {name:GetBlogDetails}
+      ✗ 'p(95)<700' p(95)=1m0s
+
+      {name:GetBlogs}
+      ✗ 'p(95)<600' p(95)=1m0s
+
+      {name:LikeBlog}
+      ✓ 'p(95)<600' p(95)=42.26ms
+
+    http_req_failed
+    ✗ 'rate<0.01' rate=36.49%
+
+
+  █ TOTAL RESULTS
+
+    checks_total.......: 12502  37.309629/s
+    checks_succeeded...: 57.19% 7150 out of 12502
+    checks_failed......: 42.80% 5352 out of 12502
+
+    ✓ login successful (200)
+    ✓ login response is text
+    ✗ get blogs successful (200)
+      ↳  44% — ✓ 1794 / ✗ 2196
+    ✗ blogs response is array
+      ↳  44% — ✓ 1794 / ✗ 2196
+    ✗ get blog details successful
+      ↳  66% — ✓ 473 / ✗ 233
+    ✗ blog details has title
+      ↳  66% — ✓ 473 / ✗ 233
+    ✗ create blog successful
+      ↳  47% — ✓ 226 / ✗ 247
+    ✗ create blog returns ID
+      ↳  47% — ✓ 226 / ✗ 247
+    ✓ like blog successful
+    ✓ check liked successful
+    ✓ create comment successful
+
+    HTTP
+    http_req_duration..............: avg=31.15s   min=3.63ms  med=32.79s max=1m0s   p(90)=1m0s    p(95)=1m0s
+      { expected_response:true }...: avg=14.57s   min=3.63ms  med=2.72s  max=59.94s p(90)=45.09s  p(95)=52.12s
+      { name:CreateBlog }..........: avg=44.18s   min=9.94ms  med=59.99s max=1m0s   p(90)=1m0s    p(95)=1m0s
+      { name:CreateComment }.......: avg=92.38ms  min=7.04ms  med=9ms    max=2.58s  p(90)=13.05ms p(95)=31.07ms
+      { name:GetBlogDetails }......: avg=36.86s   min=5.83ms  med=39.8s  max=1m0s   p(90)=1m0s    p(95)=1m0s
+      { name:GetBlogs }............: avg=45.43s   min=72.78ms med=59.99s max=1m0s   p(90)=1m0s    p(95)=1m0s
+      { name:LikeBlog }............: avg=111.33ms min=5.64ms  med=16.9ms max=4.06s  p(90)=30.13ms p(95)=42.26ms
+    http_req_failed................: 36.49% 2676 out of 7332
+    http_reqs......................: 7332   21.880835/s
+
+    EXECUTION
+    iteration_duration.............: avg=58.16s   min=1.35s   med=1m0s   max=3m1s   p(90)=1m46s   p(95)=2m0s
+    iterations.....................: 3702   11.047852/s
+    vus............................: 7      min=0            max=2000
+    vus_max........................: 2000   min=2000         max=2000
+
+    NETWORK
+    data_received..................: 913 MB 2.7 MB/s
+    data_sent......................: 4.5 MB 13 kB/s
