@@ -18,8 +18,10 @@ services:
       replicas: 3
       endpoint_mode: vip
     depends_on:
-      - zookeeper
-      - blogging-db
+      blogging-db:
+        condition: service_healthy
+      zookeeper:
+        condition: service_started
 
   comment-service:
     build: ./CommentService
@@ -38,8 +40,10 @@ services:
       replicas: 3
       endpoint_mode: vip
     depends_on:
-      - zookeeper
-      - blogging-db
+      blogging-db:
+        condition: service_healthy
+      zookeeper:
+        condition: service_started
 
   like-service:
     build: ./LikeService
@@ -60,9 +64,12 @@ services:
       replicas: 3
       endpoint_mode: vip
     depends_on:
-      - rabbitmq
-      - zookeeper
-      - blogging-db
+      blogging-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+      zookeeper:
+        condition: service_started
 
   email-service:
     build: ./EmailService
@@ -78,8 +85,10 @@ services:
       replicas: 3
       endpoint_mode: vip
     depends_on:
-      - rabbitmq
-      - zookeeper
+      rabbitmq:
+        condition: service_started
+      zookeeper:
+        condition: service_started
 
   user-service:
     build: ./UserService
@@ -94,8 +103,10 @@ services:
       replicas: 3
       endpoint_mode: vip
     depends_on:
-      - zookeeper
-      - user-db
+      user-db:
+        condition: service_healthy
+      zookeeper:
+        condition: service_started
 
   frontend:
     build: ./Frontend
@@ -179,7 +190,8 @@ services:
       - user-service
 
   blogging-db:
-    image: postgres:latest
+    image: postgres:14
+    restart: unless-stopped
     environment:
       - POSTGRES_PASSWORD=root123
       - POSTGRES_USER=finki-blogger
@@ -190,9 +202,16 @@ services:
       - blogging_data:/var/lib/postgresql/data
     networks:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finki-blogger -d finki-blogger-blogs"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   user-db:
-    image: postgres:latest
+    image: postgres:14
+    restart: unless-stopped
     environment:
       - POSTGRES_PASSWORD=root123
       - POSTGRES_USER=finki-blogger
@@ -203,9 +222,16 @@ services:
       - user_data:/var/lib/postgresql/data
     networks:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finki-blogger -d finki-blogger-users"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   rabbitmq:
     image: rabbitmq:3-management
+    restart: unless-stopped
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -214,6 +240,7 @@ services:
 
   zookeeper:
     image: zookeeper:3.7.0
+    restart: unless-stopped
     ports:
       - "2181:2181"
     networks:
