@@ -11,7 +11,10 @@ from Dtos import CommentPydantic, User
 from database import engine, SessionLocal
 from util import get_user_from_request
 
+from opentelemetry import trace
+
 app = FastAPI()
+tracer = trace.get_tracer("comment-service")
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -49,23 +52,29 @@ async def shutdown_event():
 
 @app.post("/create-comment")
 async def create_comment(comment: CommentPydantic, user: User = Depends(get_user_from_request), db: Session = Depends(get_db)):
-    blog = db.query(models.Blog).filter(models.Blog.id == comment.blog_id).first()
+    with tracer.start_as_current_span("comment.create") as span:
+        span.set_attribute("blog.id", comment.blog_id)
+        span.set_attribute("user.name", user.userName)
 
-    if not blog:
-        raise HTTPException(status_code=404, detail="Blog not found")
+        blog = db.query(models.Blog).filter(models.Blog.id == comment.blog_id).first()
 
-    new_comment = models.Comment(
-        blog_id=comment.blog_id,
-        user_id=user.userName,
-        comment_text=comment.comment_text,
-        date_created=datetime.now()
-    )
+        if not blog:
+            span.set_attribute("blog.found", False)
+            raise HTTPException(status_code=404, detail="Blog not found")
 
-    db.add(new_comment)
-    db.commit()
-    db.refresh(new_comment)
+        new_comment = models.Comment(
+            blog_id=comment.blog_id,
+            user_id=user.userName,
+            comment_text=comment.comment_text,
+            date_created=datetime.now()
+        )
 
-    return JSONResponse(status_code=200, content={"message": "Comment added successfully"})
+        db.add(new_comment)
+        db.commit()
+        db.refresh(new_comment)
+
+        span.set_attribute("comment.id", new_comment.comment_id)
+        return JSONResponse(status_code=200, content={"message": "Comment added successfully"})
 
 @app.post("/delete-comment")
 async def delete_comment(comment_id: int, db: Session = Depends(get_db)):

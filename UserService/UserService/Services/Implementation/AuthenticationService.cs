@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Identity;
@@ -11,6 +12,8 @@ namespace UserService.Services.Implementation;
 
 public class AuthenticationService : IAuthenticationService
 {
+    private static readonly ActivitySource ActivitySource = new("user-service");
+
     private readonly UserManager<User> _userManager;
     private readonly IJwtTokenService _jwtTokenService;
 
@@ -22,6 +25,10 @@ public class AuthenticationService : IAuthenticationService
 
     public async Task Register(RegisterDto registerDto)
     {
+        using var activity = ActivitySource.StartActivity("auth.register");
+        activity?.SetTag("auth.email", registerDto.Email);
+        activity?.SetTag("auth.username", registerDto.UserName);
+
         var userByEmail = await _userManager.FindByEmailAsync(registerDto.Email);
         if (userByEmail != null)
         {
@@ -53,22 +60,30 @@ public class AuthenticationService : IAuthenticationService
         {
             throw new NotMatchingException(string.Join("; ", result.Errors.Select(e => e.Description)));
         }
+
+        activity?.SetTag("auth.result", "success");
     }
 
     public async Task<string> Login(LoginDto loginDto)
     {
+        using var activity = ActivitySource.StartActivity("auth.login");
+        activity?.SetTag("auth.email", loginDto.Email);
+
         var user = await _userManager.FindByEmailAsync(loginDto.Email);
 
         if (user == null)
         {
+            activity?.SetTag("auth.result", "user_not_found");
             throw new EntityNotExistsException("Please enter correct credentials");
         }
 
         if (!await _userManager.CheckPasswordAsync(user, loginDto.Password))
         {
+            activity?.SetTag("auth.result", "invalid_password");
             throw new NotMatchingException("Invalid credentials");
         }
 
+        activity?.SetTag("auth.result", "success");
         return _jwtTokenService.GenerateToken(user);
     }
 }

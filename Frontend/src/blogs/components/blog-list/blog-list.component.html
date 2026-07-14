@@ -8,4 +8,26 @@
       <p class="text-gray-400 line-clamp-3">{{ blog.blog_text }}</p>
     </div>
   }
+
+  @if (total > 0) {
+    <div class="flex items-center justify-center gap-4 mt-6">
+      <button
+        (click)="prev()"
+        [disabled]="skip === 0"
+        class="bg-gray-700 hover:bg-gray-600 text-gray-100 px-4 py-2 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        Prev
+      </button>
+      <span class="text-gray-300"
+        >Page {{ page }} of {{ pages }} · {{ total }} blogs</span
+      >
+      <button
+        (click)="next()"
+        [disabled]="skip + limit >= total"
+        class="bg-gray-700 hover:bg-gray-600 text-gray-100 px-4 py-2 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        Next
+      </button>
+    </div>
+  }
 </div>

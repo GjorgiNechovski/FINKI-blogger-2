@@ -12,7 +12,10 @@ from database import engine, SessionLocal
 from Dtos import User
 from util import get_user_from_request
 
+from opentelemetry import trace
+
 app = FastAPI()
+tracer = trace.get_tracer("like-service")
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -31,23 +34,27 @@ zk_client = None
 service_port = None
 
 def send_email_message(email, header, message):
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host=rabbitmq_host, port=rabbitmq_port)
-    )
-    channel = connection.channel()
+    with tracer.start_as_current_span("like.publish_email_event") as span:
+        span.set_attribute("messaging.system", "rabbitmq")
+        span.set_attribute("messaging.destination", "like_events")
 
-    channel.queue_declare(queue='like_events', durable=True)
+        connection = pika.BlockingConnection(
+            pika.ConnectionParameters(host=rabbitmq_host, port=rabbitmq_port)
+        )
+        channel = connection.channel()
 
-    email_string = f"{email}|{header}|{message}"  
+        channel.queue_declare(queue='like_events', durable=True)
 
-    channel.basic_publish(exchange='',
-                         routing_key='like_events',
-                         body=email_string,     
-                         properties=pika.BasicProperties(
-                             delivery_mode=2,
-                         ))
+        email_string = f"{email}|{header}|{message}"
 
-    connection.close()
+        channel.basic_publish(exchange='',
+                             routing_key='like_events',
+                             body=email_string,
+                             properties=pika.BasicProperties(
+                                 delivery_mode=2,
+                             ))
+
+        connection.close()
 
 def get_db():
     db = SessionLocal()
@@ -71,33 +78,41 @@ async def shutdown_event():
 
 @app.post("/like")
 async def like_post(blog_id: int, user: User = Depends(get_user_from_request), db: Session = Depends(get_db)):
-    blog = db.query(models.Blog).filter(models.Blog.id == blog_id).first()
-    if not blog:
-        raise HTTPException(status_code=404, detail="Blog not found")
+    with tracer.start_as_current_span("like.toggle") as span:
+        span.set_attribute("blog.id", blog_id)
+        span.set_attribute("user.name", user.userName)
 
-    existing_like = db.query(models.Like).filter(models.Like.blog_id == blog_id, models.Like.user_id == user.userName).first()
-    if existing_like:
-        db.delete(existing_like)
-        blog.number_of_likes = blog.number_of_likes - 1 if blog.number_of_likes > 0 else 0
+        blog = db.query(models.Blog).filter(models.Blog.id == blog_id).first()
+        if not blog:
+            span.set_attribute("blog.found", False)
+            raise HTTPException(status_code=404, detail="Blog not found")
+
+        existing_like = db.query(models.Like).filter(models.Like.blog_id == blog_id, models.Like.user_id == user.userName).first()
+        if existing_like:
+            db.delete(existing_like)
+            blog.number_of_likes = blog.number_of_likes - 1 if blog.number_of_likes > 0 else 0
+            db.commit()
+            span.set_attribute("like.action", "unliked")
+            return JSONResponse(status_code=200, content={"message": "Blog unliked successfully"})
+
+        new_like = models.Like(blog_id=blog_id, user_id=user.userName)
+        db.add(new_like)
+
+        blog.number_of_likes = blog.number_of_likes + 1 if blog.number_of_likes else 1
         db.commit()
-        return JSONResponse(status_code=200, content={"message": "Blog unliked successfully"})
+        span.set_attribute("like.action", "liked")
+        span.set_attribute("blog.number_of_likes", blog.number_of_likes)
 
-    new_like = models.Like(blog_id=blog_id, user_id=user.userName)
-    db.add(new_like)
+        if blog.number_of_likes == 1 or blog.number_of_likes == 10 or blog.number_of_likes == 100:
+            email_message = f"Your post has managed to get {blog.number_of_likes} likes"
+            email_header = "New Like Notification"
+            recipient_email = user.email
 
-    blog.number_of_likes = blog.number_of_likes + 1 if blog.number_of_likes else 1
-    db.commit()
+            print(recipient_email)
 
-    if blog.number_of_likes == 1 or blog.number_of_likes == 10 or blog.number_of_likes == 100:
-        email_message = f"Your post has managed to get {blog.number_of_likes} likes"
-        email_header = "New Like Notification"
-        recipient_email = user.email
+            send_email_message(recipient_email, email_header, email_message)
 
-        print(recipient_email)
-
-        send_email_message(recipient_email, email_header, email_message)
-        
-    return JSONResponse(status_code=200, content={"message": "Blog liked successfully"})
+        return JSONResponse(status_code=200, content={"message": "Blog liked successfully"})
 
 @app.get("/has-liked/{blog_id}")
 async def has_liked(blog_id: int, user: User = Depends(get_user_from_request), db: Session = Depends(get_db)) -> bool:

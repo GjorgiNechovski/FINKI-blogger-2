@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http'
 import { Injectable } from '@angular/core'
 import { Observable } from 'rxjs'
 import { blogs_url, comments_url, headers, like_url } from '../../environment'
-import { Blog } from '../models/blog'
+import { Blog, PagedBlogs } from '../models/blog'
 
 @Injectable({
   providedIn: 'root',
@@ -10,8 +10,10 @@ import { Blog } from '../models/blog'
 export class BlogService {
   constructor(private httpClient: HttpClient) {}
 
-  getBlogs(): Observable<Blog[]> {
-    return this.httpClient.get<Blog[]>(`${blogs_url}/blogs`)
+  getBlogs(skip: number = 0, limit: number = 20): Observable<PagedBlogs> {
+    return this.httpClient.get<PagedBlogs>(
+      `${blogs_url}/blogs?skip=${skip}&limit=${limit}`,
+    )
   }
 
   createBlog(title: string, blogText: string): Observable<Blog> {

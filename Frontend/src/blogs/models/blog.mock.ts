@@ -50,7 +50,12 @@ blog2.comments = [
 export const mockBlogs: Blog[] = [blog1, blog2]
 
 export const mockBlogServiceResponses = {
-  getBlogs: () => mockBlogs,
+  getBlogs: (skip = 0, limit = 20) => ({
+    items: mockBlogs.slice(skip, skip + limit),
+    total: mockBlogs.length,
+    skip,
+    limit,
+  }),
   getBlogDetails: (blogId: string) =>
     mockBlogs.find(blog => blog.id === parseInt(blogId)) || null,
   createBlog: (title: string, blogText: string) => {

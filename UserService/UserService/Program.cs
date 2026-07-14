@@ -8,12 +8,22 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using UserService;
 using UserService.Models;
 using UserService.Services;
 using UserService.Services.Implementation;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("user-service"))
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddSource("user-service")
+        .AddOtlpExporter());
 
 builder.Services.AddControllers();
 
@@ -22,7 +32,12 @@ builder.Services.AddSwaggerGen();
 builder.Configuration.AddJsonFile("./appsettings.json", optional: true, reloadOnChange: true);
 
 builder.Services.AddDbContext<UserServiceDbContext>(
-    optionsBuilder => optionsBuilder.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    // EnableRetryOnFailure retries transient failures (incl. a dropped connection
+    // after the database restarts/fails over) on a fresh connection, instead of
+    // surfacing them as 500s -- the EF Core equivalent of pool_pre_ping.
+    optionsBuilder => optionsBuilder.UseNpgsql(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        npgsql => npgsql.EnableRetryOnFailure()));
 
 builder.Services.AddControllers().AddJsonOptions(options => 
     options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles);

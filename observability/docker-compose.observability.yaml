@@ -1,0 +1,145 @@
+# =============================================================================
+# Observability overlay (Phase 0).  INFRASTRUCTURE ONLY -- no microservice code
+# is changed. Layer this on top of the app's compose file:
+#
+#   docker compose -f docker-compose.yaml \
+#                  -f observability/docker-compose.observability.yaml up -d
+#
+# Run from the repository root. Needs observability/.env (see .env.example).
+# =============================================================================
+
+services:
+  # --- Kong: config-only changes so it emits metrics + traces ----------------
+  # Expose the admin API (for the Prometheus plugin's /metrics) and turn on
+  # tracing (for the OpenTelemetry plugin). The plugins themselves are declared
+  # in kong.yml. No service code is touched.
+  api-gateway:
+    environment:
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_TRACING_INSTRUMENTATIONS: "all"
+      KONG_TRACING_SAMPLING_RATE: "1.0"
+
+  # --- Point each instrumented service at the collector (traces -> Honeycomb).
+  #     Instrumentation is baked into the images; these env vars activate export.
+  blog-service:
+    environment:
+      - OTEL_SERVICE_NAME=blog-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+
+  comment-service:
+    environment:
+      - OTEL_SERVICE_NAME=comment-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+
+  like-service:
+    environment:
+      - OTEL_SERVICE_NAME=like-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+
+  user-service:
+    environment:
+      - OTEL_SERVICE_NAME=user-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+
+  email-service:
+    environment:
+      - OTEL_SERVICE_NAME=email-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+
+  # --- Metrics store ---------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - backend
+
+  # --- Dashboards ------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - backend
+    depends_on:
+      - prometheus
+
+  # --- Telemetry fan-out: metrics -> Prometheus, traces -> Honeycomb ---------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    env_file:
+      - ./observability/.env
+    volumes:
+      - ./observability/otel-collector/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus exporter (scraped by Prometheus)
+    networks:
+      - backend
+
+  # --- Per-container resource metrics (language-agnostic) --------------------
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - backend
+
+  # --- eBPF auto-instrumentation: per-service RED metrics + traces, zero code -
+  beyla:
+    image: grafana/beyla:latest
+    restart: unless-stopped
+    pid: "host"
+    privileged: true
+    environment:
+      BEYLA_OPEN_PORT: "8000-8090"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+      BEYLA_SERVICE_NAMESPACE: "finki-blogger"
+    depends_on:
+      - otel-collector
+    networks:
+      - backend

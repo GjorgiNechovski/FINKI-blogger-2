@@ -8,5 +8,22 @@ obj/
 *.user 
 *.vs/ 
 *.vscode/
+# Internal explainer / progress notes (just for me + Claude, not deliverable)
+progress/
+analyzer/docs/
+observability/INSTRUMENTATION.md
+/figures/
+/analysis/
 Documentation/
 Documentation/**
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets (Honeycomb API key etc.)
+observability/.env
+.env

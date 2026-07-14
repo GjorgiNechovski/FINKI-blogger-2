@@ -9,6 +9,13 @@ export class Blog {
   ) {}
 }
 
+export interface PagedBlogs {
+  items: Blog[]
+  total: number
+  skip: number
+  limit: number
+}
+
 export class Comment {
   constructor(
     public comment_id: string,

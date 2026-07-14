@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 
 from starlette.middleware.cors import CORSMiddleware
@@ -13,7 +13,10 @@ import models
 from util import get_user_from_request
 from sqlalchemy.orm import Session, joinedload
 
+from opentelemetry import trace
+
 app = FastAPI()
+tracer = trace.get_tracer("blog-service")
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -50,40 +53,73 @@ async def shutdown_event():
         zk_client.stop()
 
 @app.get("/blogs")
-async def get_blogs(db: Session = Depends(get_db)):
-    blogs = db.query(models.Blog).all()
-    return JSONResponse(content=jsonable_encoder(blogs))
+def get_blogs(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    # Paginated: never return the whole table. 'limit' is capped (le=100) so one
+    # request can only ever serialize a bounded page, not every blog. Ordering by
+    # id desc (newest first) makes paging stable across requests.
+    with tracer.start_as_current_span("blog.list") as span:
+        total = db.query(models.Blog).count()
+        blogs = (
+            db.query(models.Blog)
+            .order_by(models.Blog.id.desc())
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+        span.set_attribute("blog.count", len(blogs))
+        span.set_attribute("blog.total", total)
+        span.set_attribute("blog.skip", skip)
+        span.set_attribute("blog.limit", limit)
+        return JSONResponse(content={
+            "items": jsonable_encoder(blogs),
+            "total": total,
+            "skip": skip,
+            "limit": limit,
+        })
 
 @app.post("/create")
-async def create(blog: CreateBlogDto, user: User = Depends(get_user_from_request), db: Session = Depends(get_db)):
-    new_blog: models.Blog = models.Blog(
-        title=blog.title,
-        blog_text=blog.blog_text,
-        user_id=user.userName,
-        date_created = datetime.now(),
-        number_of_likes = 0
-    )
+def create(blog: CreateBlogDto, user: User = Depends(get_user_from_request), db: Session = Depends(get_db)):
+    with tracer.start_as_current_span("blog.create") as span:
+        span.set_attribute("blog.title", blog.title)
+        span.set_attribute("user.name", user.userName)
 
-    db.add(new_blog)
-    db.commit()
-    db.refresh(new_blog)
+        new_blog: models.Blog = models.Blog(
+            title=blog.title,
+            blog_text=blog.blog_text,
+            user_id=user.userName,
+            date_created = datetime.now(),
+            number_of_likes = 0
+        )
 
-    return_blog = jsonable_encoder(new_blog)
+        db.add(new_blog)
+        db.commit()
+        db.refresh(new_blog)
 
-    return JSONResponse(content=return_blog)
+        span.set_attribute("blog.id", new_blog.id)
+        return_blog = jsonable_encoder(new_blog)
+
+        return JSONResponse(content=return_blog)
 
 
 @app.get("/blogs/{blog_id}")
-async def get_blog(blog_id: int, db: Session = Depends(get_db)):
-    blog = db.query(models.Blog).options(joinedload(models.Blog.comments)).filter(models.Blog.id == blog_id).first()
-    if not blog:
-        raise HTTPException(status_code=404, detail="Blog not found")
+def get_blog(blog_id: int, db: Session = Depends(get_db)):
+    with tracer.start_as_current_span("blog.get") as span:
+        span.set_attribute("blog.id", blog_id)
+        blog = db.query(models.Blog).options(joinedload(models.Blog.comments)).filter(models.Blog.id == blog_id).first()
+        if not blog:
+            span.set_attribute("blog.found", False)
+            raise HTTPException(status_code=404, detail="Blog not found")
 
-    return JSONResponse(content=jsonable_encoder(blog))
+        span.set_attribute("blog.found", True)
+        return JSONResponse(content=jsonable_encoder(blog))
 
 
 @app.post("/deleteBlog/{blog_id}")
-async def delete_blog(blog_id: int, db: Session = Depends(get_db)):
+def delete_blog(blog_id: int, db: Session = Depends(get_db)):
     blog = db.query(models.Blog).filter(models.Blog.id == blog_id).first()
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")

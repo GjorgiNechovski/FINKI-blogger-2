@@ -65,3 +65,15 @@ services:
           methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
           headers: ["Accept", "Authorization", "Content-Type"]
           credentials: true
+
+plugins:
+  - name: prometheus
+    config:
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+  - name: opentelemetry
+    config:
+      traces_endpoint: http://otel-collector:4318/v1/traces
+      resource_attributes:
+        service.name: kong-gateway

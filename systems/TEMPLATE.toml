@@ -1,0 +1,99 @@
+# =============================================================================
+# TEMPLATE  --  copy this file to systems/<your-system>.toml and fill it in.
+#
+# You ONLY list names and which components each operation needs.
+# All MODEL numbers (failure rates, request rates, replica counts, ...) are
+# MEASURED for you by the analyzer -- do not put model numbers in this file.
+#
+# Then run:  python3 -m analyzer.run_all systems/<your-system>.toml
+# =============================================================================
+
+name = "My system"
+
+# --- Place your services here (just the names). ------------------------------
+services = [
+    # "my-first-service",
+    # "my-second-service",
+]
+
+# --- Place your shared infrastructure here (gateway, databases, brokers). ----
+infrastructure = [
+    # "api-gateway",
+    # "database",
+]
+
+# --- Operations you care about, and the components each one needs. -----------
+[operations]
+# checkout = ["api-gateway", "my-first-service", "database"]
+
+
+# =============================================================================
+# OPTIONAL: failure_rate estimates (reliability, Layer 2).
+#
+# repair_rate is MEASURED for you (Phase 2 kills a container and times recovery).
+# failure_rate -- how often a component fails ON ITS OWN -- cannot be measured
+# before launch (there's no runtime history yet). Once the system runs in
+# production, measure it from restart/OOM history:
+#     python3 -m analyzer.collect systems/<your-system>.toml --failures
+#
+# But for PRE-PRODUCTION analysis, put your own estimates here and they take
+# precedence over everything else. Value = failures per HOUR = 1 / MTTF_hours
+# (MTTF = mean time to failure). E.g. "fails about once a month" = 1/720 ~ 0.0014.
+# Omit this section to fall back to observed history (or a flagged default).
+# =============================================================================
+# [failure_rates]
+# default = 0.001            # applies to any component not listed below (~42-day MTTF)
+# database = 0.0002          # more reliable  (~208-day MTTF)
+# my-first-service = 0.0015  # less reliable  (~28-day MTTF)
+
+
+# =============================================================================
+# OPTIONAL: automated load generation (Phase 1 -- collection).
+#
+# Arrival rate (lambda) and utilization (rho) only EXIST while traffic flows,
+# so they must be measured under load. If you point the analyzer at a load
+# script, it will run it and measure during it:
+#
+#     python3 -m analyzer.collect systems/<your-system>.toml --run-load --write
+#
+# YOU MUST PROVIDE YOUR OWN k6 SCRIPT.  A generic tool cannot ship a universal
+# one -- your endpoints, payloads and authentication are specific to your app.
+# (See https://k6.io -- the script just describes the requests a user makes.)
+#
+# Leave this whole [load] section out to drive traffic manually instead (run
+# your own load however you like, then run the collector without --run-load).
+# =============================================================================
+# [load]
+# script = "path/to/your-load-test.js"   # REQUIRED for --run-load: your k6 script
+#
+# The overrides below are OPTIONAL. If you omit them, your script's own
+# options/stages run unchanged ("default parameters"). Provide them only to
+# override your script from here:
+# vus = 50            # constant virtual users (a single run)
+# duration = "5m"     # how long to hold that load
+# stages = [           # OR a ramping profile (takes precedence over vus/duration)
+#   { duration = "1m", target = 100 },
+#   { duration = "3m", target = 100 },
+#   { duration = "1m", target = 0 },
+# ]
+#
+# vus may be a LIST instead of a number -> a LOAD SWEEP. The analyzer runs the
+# load at each level, writes a full analysis per level (analysis/load-<N>/) and
+# a final analysis/scaling-report.txt comparing them (bottleneck, highest safe
+# load, replicas each service needs). 'duration' is the hold time per level.
+# vus = [50, 100, 200, 500]
+# duration = "3m"
+
+
+# =============================================================================
+# OPTIONAL: capacity-sizing target (replica recommendation).
+#
+# The analyzer computes the SMALLEST replica count per service that keeps its
+# M/M/c queue at or below this utilization -- pure math from the measured
+# arrival/service rates, no redeploying. In a load sweep it does this per level,
+# so you see how many replicas each service needs as traffic grows. Optionally
+# add a response-time budget (ms) to also cap latency.
+# =============================================================================
+# [capacity]
+# target_utilization = 0.7    # default if omitted
+# max_response_ms = 500       # optional latency budget

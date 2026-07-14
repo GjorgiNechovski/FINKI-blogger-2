@@ -16,8 +16,41 @@ export class BlogListComponent implements OnInit {
   ) {}
 
   blogs: Blog[] = []
+  total = 0
+  skip = 0
+  limit = 20
+
   ngOnInit(): void {
-    this.blogService.getBlogs().subscribe(blogs => (this.blogs = blogs))
+    this.load()
+  }
+
+  load(): void {
+    this.blogService.getBlogs(this.skip, this.limit).subscribe(page => {
+      this.blogs = page.items
+      this.total = page.total
+    })
+  }
+
+  next(): void {
+    if (this.skip + this.limit < this.total) {
+      this.skip += this.limit
+      this.load()
+    }
+  }
+
+  prev(): void {
+    if (this.skip > 0) {
+      this.skip = Math.max(0, this.skip - this.limit)
+      this.load()
+    }
+  }
+
+  get page(): number {
+    return Math.floor(this.skip / this.limit) + 1
+  }
+
+  get pages(): number {
+    return Math.max(1, Math.ceil(this.total / this.limit))
   }
 
   details(id: number) {

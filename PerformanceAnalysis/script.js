@@ -86,17 +86,17 @@ export default function (data) {
     'Authorization': `Bearer ${data.token}`,
   };
 
-  const blogsRes = http.get(`${BASE_URL}/blog/blogs`, {
+  const blogsRes = http.get(`${BASE_URL}/blog/blogs?skip=0&limit=20`, {
     headers: authHeaders,
     tags: { name: 'GetBlogs' },
   });
 
   check(blogsRes, {
     'get blogs successful (200)': (r) => r.status === 200,
-    'blogs response is array': (r) => {
+    'blogs response has items array': (r) => {
       try {
         const body = JSON.parse(r.body);
-        return Array.isArray(body);
+        return Array.isArray(body.items);
       } catch (e) {
         return false;
       }
@@ -105,7 +105,7 @@ export default function (data) {
 
   let existingBlogs = [];
   try {
-    existingBlogs = JSON.parse(blogsRes.body);
+    existingBlogs = JSON.parse(blogsRes.body).items;
   } catch (e) {
     console.warn('Could not parse blogs response');
   }
