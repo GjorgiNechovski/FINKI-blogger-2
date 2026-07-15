@@ -143,6 +143,35 @@ def _figures(spec, measurements, outdir) -> int:
     return len(generate_all(spec, measurements, outdir))
 
 
+def _verify_recovery(spec) -> bool:
+    """After chaos, confirm the stack fully recovered; refuse to measure if not."""
+    from analyzer.chaos.dockercli import Docker, DockerError
+    from analyzer.chaos.injector import verify_recovered
+
+    try:
+        report = verify_recovered(Docker(), spec, timeout=60.0)
+    except DockerError as exc:
+        print(f"[recovery] check SKIPPED (Docker unavailable): {exc}",
+              file=sys.stderr)
+        return True
+    if report.healed:
+        print(f"[recovery] restarted after chaos: {', '.join(report.healed)}")
+    if report.all_ok:
+        print(f"[recovery] all {len(report.recovered)} components recovered "
+              "-- proceeding.")
+        return True
+    print("[recovery] STACK DID NOT FULLY RECOVER after chaos:", file=sys.stderr)
+    for comp in report.missing:
+        print(f"           MISSING (no container): {comp}", file=sys.stderr)
+    for comp in report.unhealthy:
+        print(f"           UNHEALTHY (not ready in time): {comp}", file=sys.stderr)
+    print("           Refusing to measure a degraded stack -- the numbers would "
+          "be meaningless.", file=sys.stderr)
+    print("           Bring the stack back up (e.g. ./rebuild.sh) then re-run.",
+          file=sys.stderr)
+    return False
+
+
 # ---------------------------------------------------------------------------
 # load sweep
 # ---------------------------------------------------------------------------
@@ -180,6 +209,8 @@ def _run_sweep(spec, spec_path, args, cfg, levels) -> int:
 
     if not args.skip_chaos:
         _phase2_chaos(spec, spec_path, args)          # one pass, shared by all
+        if not _verify_recovery(spec):                # don't sweep a broken stack
+            return 1
     base_meas, _ = load_or_default_measurements(spec_path, spec)
     target_util, max_response = capacity_target(spec, args)
 

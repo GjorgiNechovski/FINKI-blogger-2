@@ -298,6 +298,75 @@ def measure_mttr(docker: Docker, component: str, containers: list,
 
 
 # ----------------------------------------------------------------------------
+# Post-chaos recovery check (did the whole stack actually come back?)
+# ----------------------------------------------------------------------------
+
+@dataclass
+class RecoveryReport:
+    recovered: list = field(default_factory=list)   # components healthy again
+    healed: list = field(default_factory=list)      # had to be restarted here
+    unhealthy: list = field(default_factory=list)   # running but not ready in time
+    missing: list = field(default_factory=list)     # no container at all (removed)
+
+    @property
+    def all_ok(self) -> bool:
+        return not self.unhealthy and not self.missing
+
+
+def _healthy_now(docker: Docker, name: str, port: int | None) -> bool:
+    """Is this container up and serving right now (no pre-kill reference needed)?"""
+    try:
+        st = docker.inspect(name)
+    except DockerError:
+        return False
+    if not st.running:
+        return False
+    if st.has_healthcheck:
+        return st.health == "healthy"
+    if port:
+        try:
+            return any(_port_open(ip, port) for ip in docker.container_ips(name))
+        except DockerError:
+            return False
+    return True
+
+
+def verify_recovered(docker: Docker, spec: dict, timeout: float = 60.0,
+                     heal: bool = True) -> RecoveryReport:
+    """After chaos, confirm every component is back up and ready.
+
+    Restarts anything left stopped (``heal``) and waits up to ``timeout`` for each
+    component to become ready (health check / readiness port / running). Reports
+    what could not be restored -- an unhealthy component, or one whose container
+    is gone entirely -- so the caller can refuse to measure a degraded stack
+    instead of silently producing meaningless numbers.
+    """
+    report = RecoveryReport()
+    for comp, svc in component_to_service(spec).items():
+        try:
+            containers = docker.containers_for(svc)
+        except DockerError:
+            containers = []
+        if not containers:
+            report.missing.append(comp)          # removed -> can't docker-start it
+            continue
+        if heal:
+            for name in containers:
+                try:
+                    if not docker.inspect(name).running:
+                        docker.start(name)
+                        if comp not in report.healed:
+                            report.healed.append(comp)
+                except DockerError:
+                    pass
+        port = readiness_port(spec, comp)
+        ready = _wait(
+            lambda: any(_healthy_now(docker, n, port) for n in containers), timeout)
+        (report.recovered if ready else report.unhealthy).append(comp)
+    return report
+
+
+# ----------------------------------------------------------------------------
 # Emitting the measured file (update reliability, preserve Phase-1 performance)
 # ----------------------------------------------------------------------------
 

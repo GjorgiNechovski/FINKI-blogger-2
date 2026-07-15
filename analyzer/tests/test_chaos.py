@@ -24,6 +24,7 @@ from analyzer.chaos.injector import (
     plan,
     render_measured_toml,
     resolve_containers,
+    verify_recovered,
 )
 
 REL = 1e-9
@@ -254,6 +255,38 @@ def test_emitted_toml_is_wellformed():
     results = {"blog-service": measure_mttr(
         docker, "blog-service", ["blog-service-1"], 1)}
     tomllib.loads(render_measured_toml(_SPEC, results, existing=None))
+
+
+def test_verify_recovered_all_healthy():
+    report = verify_recovered(_fake(), _SPEC, timeout=1.0)
+    assert report.all_ok
+    assert set(report.recovered) == {"blog-service", "kong", "blogging-db"}
+    assert report.missing == [] and report.unhealthy == []
+
+
+def test_verify_recovered_restarts_a_stopped_container():
+    docker = _fake()
+    docker.c["api-gateway-1"].running = False        # chaos left it down
+    report = verify_recovered(docker, _SPEC, timeout=1.0)
+    assert "kong" in report.healed                    # it was restarted
+    assert report.all_ok                              # and came back healthy
+    assert docker.c["api-gateway-1"].running
+
+
+def test_verify_recovered_flags_missing_container():
+    docker = _fake()
+    del docker.service_map["api-gateway"]             # container removed entirely
+    report = verify_recovered(docker, _SPEC, timeout=1.0)
+    assert "kong" in report.missing
+    assert not report.all_ok                          # -> pipeline refuses to sweep
+
+
+def test_verify_recovered_flags_unhealthy_container():
+    docker = _fake()
+    docker.c["blogging-db-1"].health = "unhealthy"    # has a healthcheck, failing
+    report = verify_recovered(docker, _SPEC, timeout=0.2, heal=False)
+    assert "blogging-db" in report.unhealthy
+    assert not report.all_ok
 
 
 def _run_all() -> int:
