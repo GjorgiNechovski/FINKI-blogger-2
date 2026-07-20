@@ -90,6 +90,50 @@ def _stage_flags(cfg: dict) -> list:
     return []
 
 
+def load_dotenv(path: str = ".env", environ=None) -> None:
+    """Load KEY=VALUE lines from a git-ignored file into the environment.
+
+    Lets secrets (GC_TOKEN, ...) live in a file you paste into instead of
+    being exported by hand every session. Existing environment variables WIN
+    over file values, so a fresh ``$env:GC_TOKEN`` still overrides the file.
+    Blank lines and ``#`` comments are ignored; malformed lines are skipped.
+    """
+    environ = os.environ if environ is None else environ
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key, value = key.strip(), value.strip()
+            if key and value and key not in environ:
+                environ[key] = value
+
+
+def _env_flags(cfg: dict, environ=None) -> list:
+    """``-e`` flags for the k6 container, so the script's ``__ENV`` works.
+
+    Two sources, both optional in ``[load]``:
+
+    * ``env`` (a table)            -> literal values from the spec
+    * ``env_passthrough`` (a list) -> forwarded from the HOST environment when
+      set there. This is the place for secrets (auth tokens, passwords): they
+      stay out of the tracked spec file. Host values win over ``env`` ones
+      (docker uses the last ``-e`` occurrence).
+    """
+    environ = os.environ if environ is None else environ
+    flags = []
+    for key, value in (cfg.get("env") or {}).items():
+        flags += ["-e", f"{key}={value}"]
+    for key in cfg.get("env_passthrough", []):
+        value = environ.get(key)
+        if value is not None:
+            flags += ["-e", f"{key}={value}"]
+    return flags
+
+
 def build_command(cfg: dict, project_dir: str,
                   image: str = _K6_IMAGE) -> list:
     """Build the ``docker run ... k6 run`` command for the load script.
@@ -104,6 +148,7 @@ def build_command(cfg: dict, project_dir: str,
         "--network", network,
         "-v", f"{os.path.abspath(project_dir)}:/work",
         "-w", "/work",
+        *_env_flags(cfg),
         image, "run",
         *_stage_flags(cfg),
         cfg["script"],

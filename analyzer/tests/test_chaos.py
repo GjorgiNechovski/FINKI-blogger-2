@@ -63,6 +63,10 @@ class FakeDocker:
     def container_ips(self, name):
         return ["10.0.0.5"]
 
+    def exec_tcp_check(self, name, port):
+        return self.exec_check_result if hasattr(self, "exec_check_result") \
+            else False
+
     def inspect(self, name):
         fc = self.c[name]
         return ContainerState(name, fc.running, fc.health, fc.restart_count,
@@ -185,6 +189,21 @@ def test_measure_mttr_uses_port_readiness():
     inj._port_open = lambda ip, port, timeout=1.5: True
     try:
         res = measure_mttr(_fake(), "blog-service", ["blog-service-1"],
+                           repetitions=1, port=8000)
+        assert len(res.samples) == 1
+        assert res.repair_rate_per_hour and res.repair_rate_per_hour > 0
+    finally:
+        inj._port_open = original
+
+
+def test_port_readiness_falls_back_to_exec_probe():
+    import analyzer.chaos.injector as inj
+    original = inj._port_open
+    inj._port_open = lambda ip, port, timeout=1.5: False   # host cannot reach
+    try:
+        fake = _fake()
+        fake.exec_check_result = True                      # app IS serving
+        res = measure_mttr(fake, "blog-service", ["blog-service-1"],
                            repetitions=1, port=8000)
         assert len(res.samples) == 1
         assert res.repair_rate_per_hour and res.repair_rate_per_hour > 0

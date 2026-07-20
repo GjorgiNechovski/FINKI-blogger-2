@@ -217,7 +217,8 @@ def analyze(spec: dict, measurements: dict) -> dict:
         p = ms[name]
         c = int(p["replicas"])
         fr = failure_rate_for(spec, name, p["failure_rate"])
-        queue = mmc_metrics(p["arrival_rate"], p["service_rate"], c)
+        mu_perf = float(p.get("service_rate_effective", p["service_rate"]))
+        queue = mmc_metrics(p["arrival_rate"], mu_perf, c)
         tier = replicated_reliability(c, fr, p["repair_rate"], k=1)
         per_replica = component_reliability(fr, p["repair_rate"]).availability
         service_results[name] = ServiceResult(name, c, queue, tier, per_replica)

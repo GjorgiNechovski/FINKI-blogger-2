@@ -158,6 +158,23 @@ def _port_open(ip: str, port: int, timeout: float = 1.5) -> bool:
         return False
 
 
+def _app_port_ready(docker: Docker, name: str, port: int) -> bool:
+    """Is the app inside ``name`` accepting connections on ``port``?
+
+    Two probes, first success wins:
+      * TCP to the container IP -- works when the host routes to the docker
+        network (Linux). On Docker Desktop (Windows/macOS) container IPs are
+        NOT host-reachable, so this can never succeed there.
+      * ``docker exec`` probe from inside the container's own network
+        namespace -- OS-independent fallback. Without it, every readiness
+        wait on Docker Desktop burns the full timeout and MTTR reads as a
+        60s ceiling instead of a measurement.
+    """
+    if any(_port_open(ip, port) for ip in docker.container_ips(name)):
+        return True
+    return docker.exec_tcp_check(name, port)
+
+
 def _ready(docker: Docker, name: str, pre_started: str,
            port: int | None) -> bool:
     """True once the recovered container is actually serving again.
@@ -175,7 +192,7 @@ def _ready(docker: Docker, name: str, pre_started: str,
     if st.has_healthcheck:
         return st.health == "healthy"
     if port:
-        return any(_port_open(ip, port) for ip in docker.container_ips(name))
+        return _app_port_ready(docker, name, port)
     return True
 
 
@@ -293,6 +310,10 @@ def measure_mttr(docker: Docker, component: str, containers: list,
 
     if result.samples:
         result.mean_seconds = sum(result.samples) / len(result.samples)
+        if result.mean_seconds <= 0.0:
+            result.mean_seconds = 0.016
+            result.notes.append("recovery faster than clock resolution; "
+                                "MTTR clamped to 16 ms (lower bound)")
         result.repair_rate_per_hour = 3600.0 / result.mean_seconds
     return result
 
@@ -325,7 +346,7 @@ def _healthy_now(docker: Docker, name: str, port: int | None) -> bool:
         return st.health == "healthy"
     if port:
         try:
-            return any(_port_open(ip, port) for ip in docker.container_ips(name))
+            return _app_port_ready(docker, name, port)
         except DockerError:
             return False
     return True
@@ -443,6 +464,6 @@ def write_measured(path: str, spec: dict, results: dict) -> str:
         with open(path, "rb") as fh:
             existing = tomllib.load(fh)
     text = render_measured_toml(spec, results, existing)
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         fh.write(text)
     return text

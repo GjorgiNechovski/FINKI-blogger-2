@@ -252,6 +252,7 @@ services:
 networks:
   frontend:
   backend:
+    name: finki-blogger-backend
 
 volumes:
   blogging_data:

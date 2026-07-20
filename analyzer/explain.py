@@ -97,7 +97,8 @@ def explain(results: dict, spec: dict, measurements: dict) -> str:
             label, _, saved = t.interventions[0]
             if saved > 0:
                 w(f"  Best single upgrade: {_pretty(label)} "
-                  f"(prevents {_human_downtime(saved)}).")
+                  f"(prevents {_human_downtime(saved)} of failure-caused "
+                  f"outage).")
         w("")
 
     # -- speed ----------------------------------------------------------
@@ -183,12 +184,34 @@ def explain(results: dict, spec: dict, measurements: dict) -> str:
     # -- what to fix ----------------------------------------------------
     w("WHAT TO FIX FIRST")
     w("-" * 70)
+    w("Two separate problems can both say 'add a replica' — do not confuse them:")
+    w("")
+    if overloaded:
+        w("  1) SPEED — URGENT. These services are overloaded at the measured")
+        w(f"     traffic: {', '.join(overloaded)}.")
+        w("     Work arrives faster than one copy can serve it, so queues and")
+        w("     waiting times grow without bound. Extra copies (or making the")
+        w("     service itself faster) are REQUIRED just to keep up. This is the")
+        w("     fix that matters first; see IS IT FAST ENOUGH? and the capacity")
+        w("     sizing in the technical report for how many copies.")
+        w("")
+        w("  2) RELIABILITY — the ranking below. It answers a DIFFERENT question:")
+    else:
+        w("  1) SPEED: nothing is overloaded at the measured traffic, so speed")
+        w("     needs no fix right now.")
+        w("")
+        w("  2) RELIABILITY — the ranking below answers a different question:")
+    w("     if a part crashes at the rate we assumed and recovers as fast as we")
+    w("     measured, how much OUTAGE TIME per year would the change prevent?")
+    w("     These amounts look tiny precisely because recovery is fast — they")
+    w("     say nothing about how slow responses get under load.")
+    w("")
     best_global = None
     for op, t in results["top_events"].items():
         if t.interventions and t.interventions[0][2] > 0:
             label, _, saved = t.interventions[0]
-            w(f'  - For "{_pretty(op)}": {_pretty(label)} — saves '
-              f"{_human_downtime(saved)}.")
+            w(f'  - For "{_pretty(op)}": {_pretty(label)} — prevents '
+              f"{_human_downtime(saved)} of failure-caused outage.")
             if best_global is None or saved > best_global[1]:
                 best_global = (label, saved)
     w("")
@@ -200,8 +223,15 @@ def explain(results: dict, spec: dict, measurements: dict) -> str:
     weak = "has a few single weak points" if any(
         results["top_events"][o].spofs for o in results["top_events"]) \
         else "has no single weak points"
-    tail = (f"; the highest-impact single change is {_pretty(best_global[0])}."
-            if best_global else ".")
+    if overloaded:
+        tail = f"; the urgent fix is more capacity for {', '.join(overloaded)}"
+        if best_global:
+            tail += (f" (for reliability, the best upgrade is "
+                     f"{_pretty(best_global[0])})")
+        tail += "."
+    else:
+        tail = (f"; the highest-impact single change is "
+                f"{_pretty(best_global[0])}." if best_global else ".")
     w(f"{results['name']} is {speed} and {weak}{tail}")
     w("")
     return "\n".join(out)

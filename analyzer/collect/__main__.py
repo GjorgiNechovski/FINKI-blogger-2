@@ -42,11 +42,12 @@ def _print_discovery(disc) -> None:
     if disc.latency:
         sel = f" (type filter: {disc.latency.type_selector})" \
             if disc.latency.type_selector else ""
-        print(f"upstream-latency metric     : {disc.latency.sum_metric}{sel}")
+        print(f"service-time metric         : {disc.latency.sum_metric}{sel}")
     else:
-        print("upstream-latency metric     : NOT FOUND")
+        print("service-time metric         : NOT FOUND")
     print(f"cAdvisor present            : {'yes' if disc.has_cadvisor else 'no'}")
-    print(f"services seen by gateway     : {disc.kong_services or '(none)'}")
+    print(f"service label on metrics     : {disc.service_label}")
+    print(f"services seen with traffic   : {disc.traffic_services or '(none)'}")
     print(f"services seen by cAdvisor    : {disc.compose_services or '(none)'}")
     if disc.notes:
         print("\nnotes:")
@@ -83,6 +84,8 @@ def _print_measurements(rows, window) -> None:
 
 
 def main(argv=None) -> int:
+    loadgen.load_dotenv()
+
     parser = argparse.ArgumentParser(
         prog="python3 -m analyzer.collect",
         description="Measure Layer-1 (M/M/c) inputs from Prometheus and write "

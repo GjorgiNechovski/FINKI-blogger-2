@@ -36,6 +36,7 @@ import tomllib
 from datetime import datetime
 
 from analyzer.capacity import capacity_section, capacity_target, size_services
+from analyzer.collect import loadgen
 from analyzer.explain import explain
 from analyzer.run_all import report
 from analyzer.spec import (
@@ -128,7 +129,7 @@ def _render_report(results, source, capacity_text=None) -> str:
 
 
 def _write(path: str, text: str) -> str:
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         fh.write(text)
     return path
 
@@ -190,13 +191,22 @@ def _measure_level(spec, args, cfg, level, base_meas):
     lvl_cfg = {**cfg, "vus": level}
     print(f"[sweep] load @ {level} VUs (blocks until it finishes)...")
     run = loadgen.run_load(lvl_cfg, project_dir=os.getcwd())
+    if run.returncode == 99:
+        print(f"[sweep]   note: k6 thresholds crossed at {level} VUs "
+              "(expected when saturating) -- run completed, measuring anyway")
+    elif not run.ok:
+        tail = "\n".join(run.output.strip().splitlines()[-15:])
+        raise SystemExit(
+            f"[sweep] ABORT: k6 exited with code {run.returncode} after "
+            f"{run.seconds:.0f}s at {level} VUs -- no measurement taken.\n"
+            f"[sweep] k6 output (tail):\n{tail}")
     window = f"{max(1, math.ceil(run.seconds / 60))}m"
     print(f"[sweep]   done in {run.seconds:.0f}s; measuring over last {window}")
 
     prom = Prometheus(args.prometheus, timeout=10.0)
     rows = measure(prom, spec, window=window)
     text = render_measured_toml(spec, rows, existing=base_meas)
-    return tomllib.loads(text), text
+    return tomllib.loads(text), rows, text
 
 
 def _run_sweep(spec, spec_path, args, cfg, levels) -> int:
@@ -215,15 +225,38 @@ def _run_sweep(spec, spec_path, args, cfg, levels) -> int:
     target_util, max_response = capacity_target(spec, args)
 
     os.makedirs(args.out, exist_ok=True)
-    level_results = []
+
+    from analyzer.collect.collector import render_measured_toml
+    measured = []                       # (level, meas, rows)
     for level in levels:
         try:
-            meas, text = _measure_level(spec, args, cfg, level, base_meas)
+            meas, rows, _text = _measure_level(spec, args, cfg, level, base_meas)
         except PrometheusError as exc:
             print(f"[sweep] level {level} SKIPPED (Prometheus unreachable): "
                   f"{exc}", file=sys.stderr)
             continue
+        measured.append((level, meas, rows))
 
+    if not measured:
+        print("error: no load level produced measurements (is the stack up?)",
+              file=sys.stderr)
+        return 1
+
+    from analyzer.saturation import estimate_capacity
+    prelim = [LevelResult(lv, m, analyze(spec, m), {}) for lv, m, _ in measured]
+    caps = estimate_capacity(prelim, spec, target_util)
+    effective = {name: caps[name].mu_clean for name in spec["services"]
+                 if caps[name].mu_clean > 0}
+    sat = [n for n in spec["services"] if caps[n].saturated]
+    if sat:
+        print("[sweep] recovered clean throughput-based service rate for "
+              f"saturated service(s): {', '.join(sat)}")
+
+    level_results = []
+    for level, meas, rows in measured:
+        text = render_measured_toml(spec, rows, existing=base_meas,
+                                    effective=effective)
+        meas = tomllib.loads(text)
         results = analyze(spec, meas)
         sizings = size_services(spec, meas, target_util, max_response)
         level_results.append(LevelResult(level, meas, results, sizings))
@@ -267,11 +300,6 @@ def _run_sweep(spec, spec_path, args, cfg, levels) -> int:
                 print(f"[sweep]   comparison skipped for {level}: {exc}",
                       file=sys.stderr)
 
-    if not level_results:
-        print("error: no load level produced measurements (is the stack up?)",
-              file=sys.stderr)
-        return 1
-
     sr = scaling_report(spec, level_results, target_util, max_response)
     sys.stdout.write(sr)
     _write(os.path.join(args.out, "scaling-report.txt"), sr)
@@ -314,6 +342,14 @@ def _run_single(spec, spec_path, args, do_load, do_chaos) -> int:
     measurements, source = load_or_default_measurements(spec_path, spec)
     results = analyze(spec, measurements)
 
+    if not measurements.get("services", {}) or any(
+            not results["services"][n].queue.stable for n in spec["services"]):
+        print("[note] single run: a service looks overloaded. Latency-based μ "
+              "cannot tell a genuinely saturated service from a highly "
+              "concurrent one measured under load. Run a load SWEEP "
+              "([load] vus = a LIST) to recover the clean throughput-based μ "
+              "and get a trustworthy utilization.", file=sys.stderr)
+
     target_util, max_response = capacity_target(spec, args)
     cap_text = capacity_section(spec, measurements, target_util, max_response)
     text = _render_report(results, source, cap_text)
@@ -330,6 +366,8 @@ def _run_single(spec, spec_path, args, do_load, do_chaos) -> int:
 
 
 def main(argv=None) -> int:
+    loadgen.load_dotenv()
+
     parser = argparse.ArgumentParser(
         prog="python3 -m analyzer",
         description="Run the whole pipeline and save the report + figures. By "
@@ -372,7 +410,6 @@ def main(argv=None) -> int:
 
     # A load sweep needs the live load phase; fall back to a single run otherwise.
     if do_load:
-        from analyzer.collect import loadgen
         try:
             cfg = loadgen.load_config(spec)
         except ValueError:

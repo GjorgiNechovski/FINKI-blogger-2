@@ -84,7 +84,7 @@ def fig_utilization(spec, measurements, outdir) -> str:
     rhos = np.linspace(0.01, 0.985, 240)
     for i, name in enumerate(spec["services"]):
         p = ms[name]
-        mu, c = p["service_rate"], int(p["replicas"])
+        mu, c = p.get("service_rate_effective", p["service_rate"]), int(p["replicas"])
         w_ms = [mmc_metrics(rho * c * mu, mu, c).W * 1000.0 for rho in rhos]
         col = _color(i)
         ax.plot(rhos, w_ms, color=col, lw=1.8, label=name)

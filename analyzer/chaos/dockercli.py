@@ -59,6 +59,27 @@ class Docker:
         return proc.stdout
 
     # -- queries ---------------------------------------------------------
+    def exec_tcp_check(self, name: str, port: int) -> bool:
+        """True if the container can reach 127.0.0.1:<port> from the inside.
+
+        Probes from within the container's own network namespace, so it works
+        on Docker Desktop (Windows/macOS) where container IPs are not routable
+        from the host. Tries bash's /dev/tcp first (Debian-based images), then
+        busybox ``nc`` (Alpine). False when the port is closed, no probe tool
+        exists, or the container is not running.
+        """
+        probes = (
+            ["bash", "-c", f"exec 3<>/dev/tcp/127.0.0.1/{int(port)}"],
+            ["sh", "-c", f"nc -z 127.0.0.1 {int(port)}"],
+        )
+        for probe in probes:
+            try:
+                self._run(["exec", name, *probe])
+                return True
+            except DockerError:
+                continue
+        return False
+
     def containers_for(self, compose_service: str) -> list:
         """Container names for a compose service (running or not), sorted."""
         out = self._run([

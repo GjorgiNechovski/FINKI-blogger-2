@@ -19,6 +19,7 @@ import tomllib
 from analyzer.collect.collector import (
     Measurement,
     _resolve_latency,
+    _resolve_service_label,
     _unit_to_seconds,
     _window_hours,
     discover,
@@ -117,6 +118,8 @@ def test_unit_detection():
     assert _unit_to_seconds("kong_upstream_latency_ms_sum") == 1e-3
     assert _unit_to_seconds("kong_upstream_latency_us_sum") == 1e-6
     assert _unit_to_seconds("kong_upstream_latency_seconds_sum") == 1.0
+    assert _unit_to_seconds("http_server_request_duration_seconds_sum") == 1.0
+    assert _unit_to_seconds("http_server_duration_milliseconds_sum") == 1e-3
 
 
 def test_resolve_latency_prefers_upstream_histogram():
@@ -140,6 +143,113 @@ def test_resolve_latency_type_label_fallback():
 
 def test_resolve_latency_none_when_absent():
     assert _resolve_latency({"kong_http_requests_total"}) is None
+
+
+def test_resolve_latency_otel_duration_histogram():
+    names = {"http_server_request_duration_seconds_sum",
+             "http_server_request_duration_seconds_count",
+             "http_server_request_duration_seconds_bucket"}
+    lat = _resolve_latency(names)
+    assert lat is not None
+    assert lat.sum_metric == "http_server_request_duration_seconds_sum"
+    assert lat.type_selector == ""
+    assert lat.to_seconds == 1.0
+
+
+def test_resolve_latency_kong_upstream_beats_otel():
+    # When both exist, the gateway's dedicated upstream histogram wins
+    # (it excludes gateway overhead by construction).
+    names = {"kong_upstream_latency_ms_sum", "kong_upstream_latency_ms_count",
+             "http_server_request_duration_seconds_sum",
+             "http_server_request_duration_seconds_count"}
+    lat = _resolve_latency(names)
+    assert lat is not None
+    assert "upstream" in lat.sum_metric
+
+
+# ---------------------------------------------------------------------------
+# An OTel-instrumented system (no Kong): metrics arrive via the OTel
+# collector's Prometheus exporter, and the service name lives in 'job'.
+# ---------------------------------------------------------------------------
+
+_OTEL_SPEC = {
+    "services": ["gamecenterapi", "astral-match-server"],
+    "infrastructure": ["redis"],
+}
+
+
+def _otel_and_cadvisor_prom():
+    """gamecenterapi: lambda=40, mean 0.025s -> mu=40, c=2 -> rho=0.5
+    astral-match-server: lambda=10, mean 0.1s -> mu=10, c=2 -> rho=0.5
+    """
+    names = [
+        "http_server_request_duration_seconds_sum",
+        "http_server_request_duration_seconds_count",
+        "http_server_request_duration_seconds_bucket",
+        "container_last_seen",
+        "container_cpu_usage_seconds_total",
+    ]
+    # NOTE: the sum-metric rule must come FIRST -- the mean-duration query
+    # contains both the _sum and _count metric names.
+    rules = [
+        ("http_server_request_duration_seconds_sum", [
+            Sample({"job": "gamecenterapi"}, 0.025),          # seconds
+            Sample({"job": "astral-match-server"}, 0.1),
+        ]),
+        ("http_server_request_duration_seconds_count", [
+            Sample({"job": "gamecenterapi"}, 40.0),
+            Sample({"job": "astral-match-server"}, 10.0),
+        ]),
+        ("container_last_seen", [
+            Sample({_COMPOSE: "gamecenterapi"}, 2.0),
+            Sample({_COMPOSE: "astral-match-server"}, 2.0),
+        ]),
+        ("container_cpu_usage_seconds_total", [
+            Sample({_COMPOSE: "gamecenterapi"}, 1.0),
+            Sample({_COMPOSE: "astral-match-server"}, 0.4),
+        ]),
+    ]
+    label_values = {
+        "job": ["gamecenterapi", "astral-match-server",
+                "cadvisor", "prometheus"],
+        _COMPOSE: ["gamecenterapi", "astral-match-server"],
+    }
+    return FakePrometheus(names, rules, label_values)
+
+
+def test_service_label_resolution():
+    prom = _otel_and_cadvisor_prom()
+    assert _resolve_service_label(prom, _OTEL_SPEC) == "job"
+    # a 'service' label whose values match the spec wins over 'job'...
+    prom._label_values["service"] = ["gamecenterapi"]
+    assert _resolve_service_label(prom, _OTEL_SPEC) == "service"
+    # ...but unrelated 'service' values don't hijack resolution.
+    prom._label_values["service"] = ["something-else"]
+    assert _resolve_service_label(prom, _OTEL_SPEC) == "job"
+
+
+def test_measure_from_otel_metrics():
+    rows = {m.name: m for m in measure(_otel_and_cadvisor_prom(), _OTEL_SPEC)}
+
+    gc = rows["gamecenterapi"]
+    assert gc.replicas == 2
+    assert _close(gc.arrival_rate, 40.0)
+    assert _close(gc.service_rate, 40.0)        # 1 / 0.025 s
+    assert _close(gc.utilization, 0.5)          # 40 / (2*40)
+    assert gc.fully_measured
+
+    am = rows["astral-match-server"]
+    assert _close(am.service_rate, 10.0)        # 1 / 0.1 s
+    assert _close(am.utilization, 0.5)          # 10 / (2*10)
+    assert am.fully_measured
+
+
+def test_discover_otel_reports_label_and_request_metric():
+    disc = discover(_otel_and_cadvisor_prom(), _OTEL_SPEC)
+    assert disc.request_metric == "http_server_request_duration_seconds_count"
+    assert disc.latency is not None
+    assert disc.service_label == "job"
+    assert "gamecenterapi" in disc.traffic_services
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +304,8 @@ def test_discover_reports_sources_and_gaps():
     assert disc.request_metric == "kong_http_requests_total"
     assert disc.latency is not None
     assert disc.has_cadvisor
-    assert "blog-service" in disc.kong_services
+    assert disc.service_label == "service"
+    assert "blog-service" in disc.traffic_services
     # email-service has no gateway traffic -> flagged in notes.
     assert any("email-service" in n for n in disc.notes)
 
@@ -286,6 +397,30 @@ def test_render_falls_back_when_unmeasured():
     assert "arrival_rate" in email and "service_rate" in email
     # every service present and parseable
     assert set(parsed["services"]) == set(_SPEC["services"])
+
+
+def test_render_emits_effective_service_rate():
+    rows = measure(_kong_and_cadvisor_prom(), _SPEC)
+    text = render_measured_toml(_SPEC, rows, existing=None,
+                                effective={"blog-service": 273.0})
+    parsed = tomllib.loads(text)
+    assert _close(parsed["services"]["blog-service"]["service_rate_effective"],
+                  273.0)
+    # services without an effective entry simply omit the field
+    assert "service_rate_effective" not in parsed["services"]["user-service"]
+
+
+def test_render_preserves_existing_effective_rate():
+    existing = {"services": {"blog-service": {
+        "replicas": 3, "failure_rate": 0.02, "repair_rate": 12.0,
+        "arrival_rate": 30.0, "service_rate": 20.0,
+        "service_rate_effective": 99.0}}, "infrastructure": {}}
+    rows = measure(_kong_and_cadvisor_prom(), _SPEC)
+    text = render_measured_toml(_SPEC, rows, existing=existing)  # no new effective
+    parsed = tomllib.loads(text)
+    # preserved from the existing file when not freshly supplied
+    assert _close(parsed["services"]["blog-service"]["service_rate_effective"],
+                  99.0)
 
 
 def test_emitted_toml_is_wellformed():

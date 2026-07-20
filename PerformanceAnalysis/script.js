@@ -2,7 +2,7 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { SharedArray } from 'k6/data';
 
-const BASE_URL = 'http://localhost:8000'; 
+const BASE_URL = __ENV.BLOG_BASE_URL || 'http://localhost:8000';
 const LOGIN_EMAIL = 'test@example.com';
 const LOGIN_PASSWORD = 'Test123!';
 

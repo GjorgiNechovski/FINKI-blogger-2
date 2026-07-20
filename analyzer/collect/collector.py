@@ -2,22 +2,31 @@
 
 The collector is deliberately generic: it never hard-codes a single metric
 name. It asks Prometheus which metrics exist and resolves the ones it needs
-from small candidate lists / fuzzy matches, because names differ across Kong
-and Beyla versions. What it needs, per service:
+from small candidate lists / fuzzy matches. Two metric families are understood:
 
-  * **lambda** (arrival rate)  from the gateway request counter
-      ``sum by (service)(rate(<requests_total>[window]))``
-  * **mu** (service rate/replica) from the gateway *upstream* latency
-      histogram: mean upstream time S -> ``mu = 1 / S`` (one replica's rate)
+  * **Kong gateway metrics** (per-upstream request counters + latency
+    histograms), as in the original FINKI-blogger case study, and
+  * **OTel HTTP-server metrics** self-reported by each instrumented service
+    (``http.server.request.duration``), typically pushed over OTLP to an OTel
+    collector whose Prometheus exporter is scraped. This is the path used for
+    the isotope-games (.NET / YARP) system, which has no Kong.
+
+What it needs, per service:
+
+  * **lambda** (arrival rate)  from a request counter
+      ``sum by (<service label>)(rate(<requests_total>[window]))``
+  * **mu** (service rate/replica) from a service-time histogram: mean service
+      time S -> ``mu = 1 / S`` (one replica's rate)
   * **c** (replicas) from cAdvisor, counting distinct containers per
       docker-compose service label
   * **rho** = lambda / (c * mu), derived, with per-replica CPU as a cross-check
 
-``mu`` uses *upstream* latency (the time the backend itself took, excluding
-Kong overhead) as the estimate of mean service time S. This is an approximation
--- under load S includes some in-replica queueing -- and is documented as a
-modelling assumption in the thesis. Measure under light/moderate load for the
-cleanest estimate.
+The service-time source is Kong's *upstream* latency (time the backend itself
+took, excluding gateway overhead) or, equivalently, the service's own
+self-reported HTTP server duration. Either way it approximates mean service
+time S -- under load S includes some in-replica queueing -- and is documented
+as a modelling assumption in the thesis. Measure under light/moderate load for
+the cleanest estimate.
 """
 
 from __future__ import annotations
@@ -29,8 +38,24 @@ from datetime import datetime, timezone
 
 from analyzer.collect.promql import Prometheus, PrometheusError, Sample
 
-# Gateway request counter -- first that exists wins (Kong version variance).
-_REQUEST_TOTAL_CANDIDATES = ("kong_http_requests_total", "kong_http_status")
+# Request counter -- first that exists wins. Two families are understood:
+#   * Kong gateway counters (names vary across Kong versions), and
+#   * OTel HTTP-server duration histograms (any OTel-instrumented service;
+#     the ``_count`` series of the histogram IS a request counter). The OTel
+#     collector's Prometheus exporter emits the new semconv name in seconds;
+#     the older semconv used ``http.server.duration`` in milliseconds.
+_REQUEST_TOTAL_CANDIDATES = (
+    "kong_http_requests_total",
+    "kong_http_status",
+    "http_server_request_duration_seconds_count",
+    "http_server_duration_milliseconds_count",
+)
+
+# Which label carries the app-service name on traffic metrics. Kong labels
+# series with ``service``; OTel resources surface as ``service_name`` (when the
+# exporter converts resource attributes to labels) or ``job`` / ``exported_job``
+# (Prometheus scrape semantics). Resolved at runtime by overlap with the spec.
+_SERVICE_LABEL_CANDIDATES = ("service", "service_name", "exported_job", "job")
 
 # cAdvisor tags every container with its docker-compose service name here.
 _COMPOSE_LABEL = "container_label_com_docker_compose_service"
@@ -63,10 +88,10 @@ class _LatencyMetric:
     to_seconds: float          # native unit -> seconds (ms => 1e-3)
     type_selector: str = ""    # e.g. 'type="upstream"' for older Kong
 
-    def mean_query(self, window: str) -> str:
+    def mean_query(self, window: str, label: str = "service") -> str:
         sel = "{" + self.type_selector + "}" if self.type_selector else ""
-        return (f"sum by (service)(rate({self.sum_metric}{sel}[{window}])) "
-                f"/ sum by (service)(rate({self.count_metric}{sel}[{window}]))")
+        return (f"sum by ({label})(rate({self.sum_metric}{sel}[{window}])) "
+                f"/ sum by ({label})(rate({self.count_metric}{sel}[{window}]))")
 
 
 def _first_present(candidates, names) -> str | None:
@@ -86,7 +111,7 @@ def _unit_to_seconds(metric_name: str) -> float:
 
 
 def _resolve_latency(names) -> _LatencyMetric | None:
-    """Find an upstream-latency histogram, tolerating naming differences."""
+    """Find a service-time histogram, tolerating naming differences."""
     # Preferred: a dedicated *upstream* latency histogram (Kong 3.x: _ms).
     sums = sorted(n for n in names
                   if "upstream" in n and "latency" in n and n.endswith("_sum"))
@@ -95,6 +120,17 @@ def _resolve_latency(names) -> _LatencyMetric | None:
     if sums and counts:
         return _LatencyMetric(sums[0], counts[0], _unit_to_seconds(sums[0]))
 
+    # OTel semantic conventions: each service self-reports its HTTP server
+    # duration (http.server.request.duration, or the older http.server.duration).
+    # Self-reported duration is the time inside the service, so it plays the
+    # same role Kong's *upstream* latency did: mean duration ~= service time S.
+    osums = sorted(n for n in names
+                   if "http_server" in n and "duration" in n and n.endswith("_sum"))
+    ocounts = sorted(n for n in names
+                     if "http_server" in n and "duration" in n and n.endswith("_count"))
+    if osums and ocounts:
+        return _LatencyMetric(osums[0], ocounts[0], _unit_to_seconds(osums[0]))
+
     # Fallback: a generic latency histogram carrying a type="upstream" label.
     gsum = sorted(n for n in names if "latency" in n and n.endswith("_sum"))
     gcount = sorted(n for n in names if "latency" in n and n.endswith("_count"))
@@ -102,6 +138,25 @@ def _resolve_latency(names) -> _LatencyMetric | None:
         return _LatencyMetric(gsum[0], gcount[0], _unit_to_seconds(gsum[0]),
                               type_selector='type="upstream"')
     return None
+
+
+def _resolve_service_label(prom: Prometheus, spec: dict) -> str:
+    """Pick the label that carries app-service names on traffic metrics.
+
+    Tries each candidate and keeps the first whose values overlap the spec's
+    service names -- so a Kong system resolves ``service`` and an
+    OTel-instrumented system resolves ``service_name`` / ``job`` without any
+    configuration. Defaults to ``service`` when nothing has traffic yet.
+    """
+    wanted = set(spec["services"])
+    for label in _SERVICE_LABEL_CANDIDATES:
+        try:
+            values = set(prom.label_values(label))
+        except PrometheusError:
+            continue
+        if values & wanted:
+            return label
+    return "service"
 
 
 def _by_label(samples: list[Sample], label: str) -> dict:
@@ -174,7 +229,8 @@ class Discovery:
     request_metric: str | None
     latency: _LatencyMetric | None
     has_cadvisor: bool
-    kong_services: list
+    service_label: str
+    traffic_services: list
     compose_services: list
     notes: list
 
@@ -185,11 +241,12 @@ def discover(prom: Prometheus, spec: dict) -> Discovery:
     request_metric = _first_present(_REQUEST_TOTAL_CANDIDATES, names)
     latency = _resolve_latency(names)
     has_cadvisor = any(m in names for m in _CADVISOR_MARKERS)
+    service_label = _resolve_service_label(prom, spec)
 
     try:
-        kong_services = [v for v in prom.label_values("service") if v]
+        traffic_services = [v for v in prom.label_values(service_label) if v]
     except PrometheusError:
-        kong_services = []
+        traffic_services = []
     try:
         compose_services = [v for v in prom.label_values(_COMPOSE_LABEL) if v]
     except PrometheusError:
@@ -198,26 +255,29 @@ def discover(prom: Prometheus, spec: dict) -> Discovery:
     spec_services = set(spec["services"])
     notes: list[str] = []
     if request_metric is None:
-        notes.append("No gateway request-count metric found -> lambda cannot "
-                     "be measured (is the Kong prometheus plugin scraped?).")
+        notes.append("No request-count metric found -> lambda cannot be "
+                     "measured (is a gateway metrics plugin or per-service "
+                     "OTel instrumentation being scraped?).")
     if latency is None:
-        notes.append("No upstream-latency histogram found -> mu (service rate) "
+        notes.append("No service-time histogram found -> mu (service rate) "
                      "cannot be measured.")
     if not has_cadvisor:
         notes.append("No cAdvisor metrics found -> replica counts cannot be "
                      "measured.")
-    if kong_services:
-        missing = sorted(spec_services - set(kong_services))
+    if traffic_services:
+        missing = sorted(spec_services - set(traffic_services))
         if missing:
-            notes.append(f"Spec services with no gateway traffic yet (or a name "
-                         f"mismatch): {missing}. Drive traffic to them first.")
+            notes.append(f"Spec services with no traffic metrics yet (or a name "
+                         f"mismatch on label '{service_label}'): {missing}. "
+                         f"Drive traffic to them first.")
     if compose_services:
         missing = sorted(spec_services - set(compose_services))
         if missing:
             notes.append(f"Spec services not seen by cAdvisor: {missing}.")
 
     return Discovery(len(names), request_metric, latency, has_cadvisor,
-                     sorted(kong_services), sorted(compose_services), notes)
+                     service_label, sorted(traffic_services),
+                     sorted(compose_services), notes)
 
 
 # ----------------------------------------------------------------------------
@@ -251,16 +311,18 @@ def measure(prom: Prometheus, spec: dict, window: str = "5m") -> list[Measuremen
     request_metric = _first_present(_REQUEST_TOTAL_CANDIDATES, names)
     latency = _resolve_latency(names)
     has_cadvisor = any(m in names for m in _CADVISOR_MARKERS)
+    label = _resolve_service_label(prom, spec)
 
     lam: dict = {}
     if request_metric:
         lam = _by_label(
-            prom.instant(f"sum by (service)(rate({request_metric}[{window}]))"),
-            "service")
+            prom.instant(f"sum by ({label})(rate({request_metric}[{window}]))"),
+            label)
 
     mu: dict = {}
     if latency:
-        raw_mean = _by_label(prom.instant(latency.mean_query(window)), "service")
+        raw_mean = _by_label(prom.instant(latency.mean_query(window, label)),
+                             label)
         for svc, raw in raw_mean.items():
             seconds = raw * latency.to_seconds
             if seconds > 0:
@@ -288,9 +350,9 @@ def measure(prom: Prometheus, spec: dict, window: str = "5m") -> list[Measuremen
         if m.replicas is None:
             m.notes.append("replicas not measured (no cAdvisor series)")
         if m.arrival_rate is None:
-            m.notes.append("lambda not measured (no gateway traffic seen)")
+            m.notes.append("lambda not measured (no traffic metrics seen)")
         if m.service_rate is None:
-            m.notes.append("mu not measured (no upstream-latency samples)")
+            m.notes.append("mu not measured (no service-time samples)")
 
         if m.arrival_rate is not None and m.service_rate and m.replicas:
             m.utilization = m.arrival_rate / (m.replicas * m.service_rate)
@@ -314,15 +376,23 @@ def _fmt(value: float) -> str:
 
 
 def render_measured_toml(spec: dict, measurements: list[Measurement],
-                         existing: dict | None = None) -> str:
+                         existing: dict | None = None,
+                         effective: dict | None = None) -> str:
     """Render a ``*.measured.toml`` string.
 
     Phase 1 owns ``replicas`` / ``arrival_rate`` / ``service_rate``. It
     PRESERVES ``failure_rate`` / ``repair_rate`` (Phase 2's job) and the whole
     ``[infrastructure]`` section from ``existing`` when available, so running
     collection never clobbers reliability numbers.
+
+    ``effective`` (optional, ``{service: mu_effective}``) is written as
+    ``service_rate_effective`` -- the clean throughput-recovered per-replica
+    rate the load sweep derives once it can see a service saturate. Layer 1
+    (performance) prefers it over the latency-based ``service_rate``; the latter
+    is kept for reference (it exposes the μ-poisoning under load).
     """
     existing = existing or {}
+    effective = effective or {}
     ex_services = existing.get("services", {})
     ex_infra = existing.get("infrastructure", {})
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -338,6 +408,8 @@ def render_measured_toml(spec: dict, measurements: list[Measurement],
         "#",
         "#   failure_rate / repair_rate : per hour   (reliability, Layer 2)",
         "#   arrival_rate / service_rate: per second (performance, Layer 1)",
+        "#   service_rate_effective     : per second, clean throughput-recovered",
+        "#                                per-replica rate (Layer 1 prefers it)",
         "#   replicas                   : counted from cAdvisor",
         "# " + "=" * 75,
         "",
@@ -360,6 +432,11 @@ def render_measured_toml(spec: dict, measurements: list[Measurement],
         lines.append(f"repair_rate = {_fmt(float(repair))}")
         lines.append(f"arrival_rate = {_fmt(float(arrival))}")
         lines.append(f"service_rate = {_fmt(float(service))}")
+        eff = effective.get(m.name)
+        if eff is None:
+            eff = prev.get("service_rate_effective")
+        if eff is not None:
+            lines.append(f"service_rate_effective = {_fmt(float(eff))}")
         if not m.fully_measured:
             lines.append("# NOTE: one or more values above are fallbacks, not "
                          "measured. See collector output.")
@@ -385,6 +462,6 @@ def write_measured(path: str, spec: dict,
         with open(path, "rb") as fh:
             existing = tomllib.load(fh)
     text = render_measured_toml(spec, measurements, existing)
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         fh.write(text)
     return text

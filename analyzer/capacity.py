@@ -119,7 +119,7 @@ def size_services(spec: dict, measurements: dict,
     for name in spec["services"]:
         p = ms[name]
         lam = float(p["arrival_rate"])
-        mu = float(p["service_rate"])
+        mu = float(p.get("service_rate_effective", p["service_rate"]))
         current = int(p["replicas"])
         needed = min_replicas(lam, mu, target_utilization=target_utilization,
                               max_response=max_response)
