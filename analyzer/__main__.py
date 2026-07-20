@@ -144,6 +144,11 @@ def _figures(spec, measurements, outdir) -> int:
     return len(generate_all(spec, measurements, outdir))
 
 
+def _rebuild_hint() -> str:
+    """The rebuild command for THIS platform, for remediation messages."""
+    return ".\\rebuild.ps1" if os.name == "nt" else "./rebuild.sh"
+
+
 def _verify_recovery(spec) -> bool:
     """After chaos, confirm the stack fully recovered; refuse to measure if not."""
     from analyzer.chaos.dockercli import Docker, DockerError
@@ -168,7 +173,7 @@ def _verify_recovery(spec) -> bool:
         print(f"           UNHEALTHY (not ready in time): {comp}", file=sys.stderr)
     print("           Refusing to measure a degraded stack -- the numbers would "
           "be meaningless.", file=sys.stderr)
-    print("           Bring the stack back up (e.g. ./rebuild.sh) then re-run.",
+    print(f"           Bring the stack back up ({_rebuild_hint()}) then re-run.",
           file=sys.stderr)
     return False
 
@@ -205,7 +210,12 @@ def _measure_level(spec, args, cfg, level, base_meas):
 
     prom = Prometheus(args.prometheus, timeout=10.0)
     rows = measure(prom, spec, window=window)
-    text = render_measured_toml(spec, rows, existing=base_meas)
+    # inherit_effective=False: this pass only decides whether each service
+    # saturated AT THIS LEVEL, and that must rest on the mu measured now. A
+    # previous run's service_rate_effective would otherwise drive the verdict
+    # and hide a regression. The clean rate is re-derived below, across levels.
+    text = render_measured_toml(spec, rows, existing=base_meas,
+                                inherit_effective=False)
     return tomllib.loads(text), rows, text
 
 

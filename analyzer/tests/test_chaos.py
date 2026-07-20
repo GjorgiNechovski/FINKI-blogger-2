@@ -269,6 +269,44 @@ def test_render_updates_repair_preserves_performance():
     assert _close(parsed["infrastructure"]["kong"]["repair_rate"], 12.0)
 
 
+def test_render_preserves_effective_service_rate():
+    # service_rate_effective is a PERFORMANCE number (the sweep's clean,
+    # throughput-recovered mu). Chaos measures reliability only, so dropping it
+    # here would silently demote Layer 1 back to the queue-poisoned latency mu.
+    existing = {
+        "services": {
+            "blog-service": {"replicas": 3, "failure_rate": 0.03,
+                             "repair_rate": 12.0, "arrival_rate": 1.42,
+                             "service_rate": 0.046,
+                             "service_rate_effective": 6.74},
+        },
+        "infrastructure": {},
+    }
+    docker = _fake()
+    results = {"blog-service": measure_mttr(
+        docker, "blog-service", ["blog-service-1"], 1)}
+    parsed = tomllib.loads(render_measured_toml(_SPEC, results, existing))
+    blog = parsed["services"]["blog-service"]
+    assert _close(blog["service_rate_effective"], 6.74)   # survived chaos
+    assert _close(blog["service_rate"], 0.046)            # raw one kept too
+
+
+def test_render_omits_effective_rate_when_absent():
+    existing = {
+        "services": {
+            "blog-service": {"replicas": 3, "failure_rate": 0.03,
+                             "repair_rate": 12.0, "arrival_rate": 1.42,
+                             "service_rate": 21.57},
+        },
+        "infrastructure": {},
+    }
+    docker = _fake()
+    results = {"blog-service": measure_mttr(
+        docker, "blog-service", ["blog-service-1"], 1)}
+    parsed = tomllib.loads(render_measured_toml(_SPEC, results, existing))
+    assert "service_rate_effective" not in parsed["services"]["blog-service"]
+
+
 def test_emitted_toml_is_wellformed():
     docker = _fake()
     results = {"blog-service": measure_mttr(

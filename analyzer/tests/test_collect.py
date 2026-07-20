@@ -423,6 +423,27 @@ def test_render_preserves_existing_effective_rate():
                   99.0)
 
 
+def test_render_can_refuse_to_inherit_a_stale_effective_rate():
+    # The sweep's preliminary pass must judge saturation on THIS run's mu, so
+    # it asks for fresh values only. A previous run's effective rate would
+    # otherwise drive the verdict and mask a regression.
+    existing = {"services": {"blog-service": {
+        "replicas": 3, "failure_rate": 0.02, "repair_rate": 12.0,
+        "arrival_rate": 30.0, "service_rate": 20.0,
+        "service_rate_effective": 99.0}}, "infrastructure": {}}
+    rows = measure(_kong_and_cadvisor_prom(), _SPEC)
+    text = render_measured_toml(_SPEC, rows, existing=existing,
+                                inherit_effective=False)
+    parsed = tomllib.loads(text)
+    assert "service_rate_effective" not in parsed["services"]["blog-service"]
+    # a freshly derived value still lands even when inheritance is off
+    text = render_measured_toml(_SPEC, rows, existing=existing,
+                                effective={"blog-service": 7.5},
+                                inherit_effective=False)
+    assert _close(tomllib.loads(text)["services"]["blog-service"]
+                  ["service_rate_effective"], 7.5)
+
+
 def test_emitted_toml_is_wellformed():
     rows = measure(_kong_and_cadvisor_prom(), _SPEC)
     text = render_measured_toml(_SPEC, rows, existing=None)

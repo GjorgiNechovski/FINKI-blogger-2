@@ -408,9 +408,15 @@ def render_measured_toml(spec: dict, results: dict,
     """Render ``*.measured.toml`` updating reliability from chaos ``results``.
 
     Phase 2 owns ``failure_rate`` / ``repair_rate``. It PRESERVES Phase-1's
-    ``replicas`` / ``arrival_rate`` / ``service_rate`` from ``existing`` so a
-    chaos run never clobbers the performance numbers. ``results`` maps a
-    component name to its :class:`MttrResult`.
+    ``replicas`` / ``arrival_rate`` / ``service_rate`` -- and the sweep's
+    ``service_rate_effective`` -- from ``existing`` so a chaos run never
+    clobbers the performance numbers. ``results`` maps a component name to its
+    :class:`MttrResult`.
+
+    ``service_rate_effective`` is preserved verbatim (it is a performance
+    number, not a reliability one). Dropping it would silently demote Layer 1
+    back to the latency-based ``service_rate``, which is queue-poisoned under
+    load -- the failure mode the effective rate exists to prevent.
     """
     existing = existing or {}
     ex_services = existing.get("services", {})
@@ -429,6 +435,7 @@ def render_measured_toml(spec: dict, results: dict,
         "#",
         "#   failure_rate / repair_rate : per hour   (reliability, Layer 2)",
         "#   arrival_rate / service_rate: per second (performance, Layer 1)",
+        "#   service_rate_effective     : per second, preserved from the sweep",
         "# " + "=" * 75,
         "",
     ]
@@ -444,6 +451,9 @@ def render_measured_toml(spec: dict, results: dict,
                      f"{_fmt(float(prev.get('arrival_rate', _FALLBACK_ARRIVAL)))}")
         lines.append(f"service_rate = "
                      f"{_fmt(float(prev.get('service_rate', _FALLBACK_SERVICE)))}")
+        eff = prev.get("service_rate_effective")
+        if eff is not None:
+            lines.append(f"service_rate_effective = {_fmt(float(eff))}")
         lines.append("")
 
     for name in spec.get("infrastructure", []):

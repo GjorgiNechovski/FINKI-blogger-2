@@ -81,8 +81,38 @@ infrastructure = [
 # load at each level, writes a full analysis per level (analysis/load-<N>/) and
 # a final analysis/scaling-report.txt comparing them (bottleneck, highest safe
 # load, replicas each service needs). 'duration' is the hold time per level.
+# A sweep is STRONGLY preferred over a single run: only by watching throughput
+# across levels can the analyzer recover a trustworthy service rate for a
+# service that saturates (see service_rate_effective below).
 # vus = [50, 100, 200, 500]
 # duration = "3m"
+#
+# --- Reaching your app from the k6 container --------------------------------
+# By default k6 runs with --network host, so the script can hit the app at
+# localhost:<port>. That works on LINUX only. On WINDOWS and macOS (Docker
+# Desktop) there is no host networking: set docker_network to your compose
+# network and have the script target a SERVICE NAME instead of localhost.
+#
+# Find the network name with:  docker network ls
+# Pin it in your compose file so it is stable:
+#     networks:
+#       backend:
+#         name: my-app-backend
+#
+# docker_network = "my-app-backend"
+#
+# --- Passing values into the k6 script (__ENV) ------------------------------
+# 'env' sets literal values. Use it for the base URL, so the same script works
+# on Linux (localhost) and Docker Desktop (service DNS) without editing it:
+#     const BASE_URL = __ENV.BASE_URL || 'http://localhost:8000';
+# env = { BASE_URL = "http://api-gateway:8000" }
+#
+# 'env_passthrough' forwards variables from YOUR shell into the k6 container
+# when they are set. This is where SECRETS belong (tokens, passwords): they
+# stay out of this tracked file. Values found in the environment win over 'env'.
+# You may also put them in a git-ignored .env file at the repo root; the
+# analyzer loads it at startup, and real environment variables still override.
+# env_passthrough = ["AUTH_TOKEN", "TEST_PASSWORD"]
 
 
 # =============================================================================
@@ -97,3 +127,74 @@ infrastructure = [
 # [capacity]
 # target_utilization = 0.7    # default if omitted
 # max_response_ms = 500       # optional latency budget
+
+
+# =============================================================================
+# OPTIONAL: scale-out vs optimize thresholds.
+#
+# For an OVERLOADED service the analyzer says whether to add replicas or make
+# the request itself cheaper. The discriminator is per-request service time
+# S = 1/mu: a HEAVY request means another replica only buys you mu more req/s,
+# so the fix is optimization (pagination, an index, caching); a CHEAP request
+# that is merely swamped scales out fine.
+#
+# "Heavy" is relative to your own system:
+#     S >= max(heavy_floor_ms, heavy_factor * median S across services)
+# Raise heavy_floor_ms if your workload is legitimately slow everywhere.
+# =============================================================================
+# [diagnose]
+# heavy_floor_ms = 40         # default: below this, never called "heavy"
+# heavy_factor = 2.0          # default: this many times the median service time
+
+
+# =============================================================================
+# WHAT THE ANALYZER NEEDS TO SEE (metrics prerequisites)
+#
+# Every number is measured from Prometheus. You need THREE things scraped; the
+# analyzer resolves the exact metric names itself (it never hard-codes one), so
+# versions and vendors do not matter -- but the families must be present.
+# Check what it found with:
+#     python3 -m analyzer.collect systems/<your-system>.toml --discover
+#
+#  1. REQUEST COUNT + SERVICE TIME, per service. Either works:
+#     * an API gateway that exports per-upstream request counts and latency
+#       histograms (e.g. Kong's prometheus plugin), or
+#     * per-service OpenTelemetry HTTP-server metrics
+#       (http.server.request.duration), exported via an OTel collector whose
+#       Prometheus endpoint is scraped. Use this when there is no gateway.
+#     -> gives arrival rate (lambda) and service rate (mu).
+#
+#  2. cAdvisor, for per-container CPU and the replica count (c). It counts
+#     distinct containers per docker-compose service label, so this assumes a
+#     docker-compose deployment.
+#
+#  3. The service NAMES in the metric labels must match the names in this file.
+#     The analyzer tries 'service', 'service_name', 'exported_job' and 'job'
+#     and keeps whichever overlaps your list -- but if your services are named
+#     differently in telemetry than here, --discover will report them missing.
+#
+# Anything it cannot measure is reported as unmeasured. The analyzer never
+# invents a number to fill a gap.
+# =============================================================================
+
+
+# =============================================================================
+# A NOTE ON THE MEASURED FILE (systems/<your-system>.measured.toml)
+#
+# AUTO-GENERATED -- never edit it by hand. Two service-rate fields appear there
+# and the difference matters when you read a report:
+#
+#   service_rate            mu estimated as 1 / mean-latency. Only trustworthy
+#                           while the service is NOT saturated: mean latency
+#                           includes QUEUE time, so under load this collapses
+#                           and makes the service look far weaker than it is.
+#   service_rate_effective  mu recovered from the throughput plateau during a
+#                           load sweep. Under saturation every replica is
+#                           always busy, so completed-request throughput is
+#                           c * mu -- departures are not inflated by queueing,
+#                           only latency is. This is the trustworthy one, and
+#                           the analysis prefers it whenever it is present.
+#
+# This is why a load SWEEP beats a single run: without watching throughput
+# across levels there is no way to tell a saturated service from a slow one.
+# =============================================================================

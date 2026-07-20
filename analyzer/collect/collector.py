@@ -377,7 +377,8 @@ def _fmt(value: float) -> str:
 
 def render_measured_toml(spec: dict, measurements: list[Measurement],
                          existing: dict | None = None,
-                         effective: dict | None = None) -> str:
+                         effective: dict | None = None,
+                         inherit_effective: bool = True) -> str:
     """Render a ``*.measured.toml`` string.
 
     Phase 1 owns ``replicas`` / ``arrival_rate`` / ``service_rate``. It
@@ -390,6 +391,14 @@ def render_measured_toml(spec: dict, measurements: list[Measurement],
     rate the load sweep derives once it can see a service saturate. Layer 1
     (performance) prefers it over the latency-based ``service_rate``; the latter
     is kept for reference (it exposes the μ-poisoning under load).
+
+    ``inherit_effective`` controls the fallback when ``effective`` carries no
+    value for a service: by default the one in ``existing`` is carried forward,
+    which is what a normal write wants. Pass ``False`` to emit ONLY freshly
+    derived values. The sweep's preliminary pass needs that: it must decide
+    whether a service saturated *in this run*, and inheriting a previous run's
+    effective rate would let a stale mu drive that decision -- masking a real
+    regression, or inventing a saturation that did not happen.
     """
     existing = existing or {}
     effective = effective or {}
@@ -433,7 +442,7 @@ def render_measured_toml(spec: dict, measurements: list[Measurement],
         lines.append(f"arrival_rate = {_fmt(float(arrival))}")
         lines.append(f"service_rate = {_fmt(float(service))}")
         eff = effective.get(m.name)
-        if eff is None:
+        if eff is None and inherit_effective:
             eff = prev.get("service_rate_effective")
         if eff is not None:
             lines.append(f"service_rate_effective = {_fmt(float(eff))}")
